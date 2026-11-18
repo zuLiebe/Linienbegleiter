@@ -279,6 +279,9 @@ fun RouteFollowingScreen(
     if (showStopConfirmationDialog) {
         AlertDialog(
             onDismissRequest = { showStopConfirmationDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Остановка навигации") },
             text = { Text("Хотите остановить навигацию по маршруту?") },
             confirmButton = {
@@ -387,6 +390,9 @@ fun RouteFollowingScreen(
     if (showPermissionExplanation) {
         AlertDialog(
             onDismissRequest = { showPermissionExplanation = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Разрешения для следования") },
             text = {
                 Text(
@@ -421,6 +427,9 @@ fun RouteFollowingScreen(
     if (showFinishConfirmation) {
         AlertDialog(
             onDismissRequest = { showFinishConfirmation = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Остановить следование?") },
             text = { Text("Текущее положение больше не будет отслеживаться.") },
             confirmButton = {

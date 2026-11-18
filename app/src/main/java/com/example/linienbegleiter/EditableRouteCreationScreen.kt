@@ -378,6 +378,9 @@ fun EditableRouteCreationScreen(
     pendingStop?.let { requestedStop ->
         AlertDialog(
             onDismissRequest = { pendingStop = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Добавить остановку") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

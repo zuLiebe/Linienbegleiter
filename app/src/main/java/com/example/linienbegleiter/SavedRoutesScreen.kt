@@ -291,6 +291,9 @@ fun SavedRoutesScreen(
             session.status == RecordingStatus.PAUSED
         AlertDialog(
             onDismissRequest = { recordingDeleteTarget = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Удалить маршрут?") },
             text = {
                 Text(
@@ -346,6 +349,9 @@ fun SavedRoutesScreen(
     deleteTarget?.let { route ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Удалить маршрут?") },
             text = {
                 Text("Удалить «${route.title}» и все данные этого маршрута?")
@@ -383,6 +389,9 @@ fun SavedRoutesScreen(
     appearanceTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { appearanceTarget = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Оформление маршрута") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -317,6 +317,9 @@ fun RecordingScreen(
         RecordingPermissionDialog.NONE -> Unit
         RecordingPermissionDialog.LOCATION_EXPLANATION -> AlertDialog(
             onDismissRequest = { permissionDialog = RecordingPermissionDialog.NONE },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Разрешить геолокацию") },
             text = {
                 Text(
@@ -362,6 +365,9 @@ fun RecordingScreen(
         )
         RecordingPermissionDialog.NOTIFICATION_EXPLANATION -> AlertDialog(
             onDismissRequest = { permissionDialog = RecordingPermissionDialog.NONE },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Показывать состояние записи") },
             text = {
                 Text(
@@ -410,6 +416,9 @@ fun RecordingScreen(
     if (showAddStopDialog) {
         AlertDialog(
             onDismissRequest = { showAddStopDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Добавить остановку") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -459,6 +468,9 @@ fun RecordingScreen(
     if (showFinishDialog) {
         AlertDialog(
             onDismissRequest = { showFinishDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Завершить запись?") },
             text = {
                 Text("GPS-точки и добавленные остановки будут сохранены как исходная запись.")
@@ -911,6 +923,9 @@ private fun PermissionInfoDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 12.dp,
+        shape = RoundedCornerShape(28.dp),
         title = { Text(title) },
         text = { Text(message) },
         confirmButton = {

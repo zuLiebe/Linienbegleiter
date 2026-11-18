@@ -866,6 +866,9 @@ fun RouteEditorScreen(
             if (showRouteDetails) {
                 AlertDialog(
                     onDismissRequest = { showRouteDetails = false },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 12.dp,
+                    shape = RoundedCornerShape(28.dp),
                     title = { Text("Маршрут и остановки") },
                     text = {
                         Column(
@@ -1165,6 +1168,9 @@ fun RouteEditorScreen(
     if (showExitConfirmation) {
         AlertDialog(
             onDismissRequest = { showExitConfirmation = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Несохранённые изменения") },
             text = { Text("Сохранить изменения перед выходом из редактора?") },
             confirmButton = {
@@ -1214,6 +1220,9 @@ fun RouteEditorScreen(
 
         AlertDialog(
             onDismissRequest = { showDirectionDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("С какой остановки начинается маршрут?") },
             text = {
                 Column(
@@ -1268,6 +1277,9 @@ fun RouteEditorScreen(
                 stopNameDialog = false
                 pendingStopPosition = null
             },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = {
                 Text(if (pendingStopPosition != null) "Новая остановка" else "Название остановки")
             },

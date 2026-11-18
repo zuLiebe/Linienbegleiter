@@ -1183,6 +1183,9 @@ fun MapScreen(
     if (showRouteDropdownDialog) {
         AlertDialog(
             onDismissRequest = { showRouteDropdownDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Сохранённые маршруты") },
             text = {
                 Column(
@@ -1246,6 +1249,9 @@ fun MapScreen(
     if (showLocationPermissionExplanation && requestLocationOnOpen) {
         AlertDialog(
             onDismissRequest = { showLocationPermissionExplanation = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Местоположение на карте") },
             text = {
                 Text(
@@ -1277,6 +1283,9 @@ fun MapScreen(
     selectedMapStop?.let { stop ->
         AlertDialog(
             onDismissRequest = { selectedMapStop = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text(stop.name) },
             text = { Text("Остановка ${stop.sequence + 1}\n${"%.5f".format(stop.latitude)}, ${"%.5f".format(stop.longitude)}") },
             confirmButton = {
