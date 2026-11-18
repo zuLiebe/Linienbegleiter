@@ -78,7 +78,6 @@ import kotlinx.coroutines.flow.flowOf
 import org.maplibre.android.camera.CameraPosition
 
 private enum class AppScreen {
-    HOME,
     ROUTES,
     SETTINGS,
     IMPORT_EXPORT,
@@ -92,7 +91,7 @@ private enum class AppScreen {
 }
 
 private enum class MainTab {
-    HOME,
+    MAP,
     ROUTES,
     CREATE,
     NAVIGATION,
@@ -194,7 +193,7 @@ private fun LinienbegleiterApp(
     val context = LocalContext.current
     var screen by remember { mutableStateOf(AppScreen.MAP) }
     var importExportReturnScreen by remember { mutableStateOf(AppScreen.SETTINGS) }
-    var selectedMainTab by remember { mutableStateOf(MainTab.HOME) }
+    var selectedMainTab by remember { mutableStateOf(MainTab.MAP) }
     var keepScreenOn by remember { mutableStateOf(AppPreferences.keepScreenOn(context)) }
     val shouldKeepScreenOn = keepScreenOn && screen in setOf(AppScreen.MAP, AppScreen.RECORDING, AppScreen.FOLLOWING)
     DisposableEffect(shouldKeepScreenOn) {
@@ -223,7 +222,7 @@ private fun LinienbegleiterApp(
         screen = when (screen) {
             AppScreen.FOLLOWING -> AppScreen.ROUTES
             AppScreen.IMPORT_EXPORT -> importExportReturnScreen
-            else -> AppScreen.HOME
+            else -> AppScreen.MAP
         }
     }
 
@@ -248,7 +247,7 @@ private fun LinienbegleiterApp(
                             }
                         } else {
                             screen = when (tab) {
-                                MainTab.HOME -> AppScreen.MAP
+                                MainTab.MAP -> AppScreen.MAP
                                 MainTab.ROUTES -> AppScreen.ROUTES
                                 MainTab.CREATE -> AppScreen.CREATE
                                 MainTab.NAVIGATION -> AppScreen.ROUTES
@@ -261,20 +260,9 @@ private fun LinienbegleiterApp(
         }
     ) { innerPadding ->
         when (screen) {
-            AppScreen.HOME -> HomeScreen(
-                modifier = Modifier.padding(innerPadding),
-                onCreateRoute = { screen = AppScreen.CREATE },
-                onRecordRoute = {
-                    recordingId = null
-                    screen = AppScreen.RECORDING
-                },
-                onOpenRoutes = { selectedMainTab = MainTab.ROUTES; screen = AppScreen.ROUTES },
-                onOpenMap = { screen = AppScreen.MAP }
-            )
-
             AppScreen.ROUTES -> SavedRoutesScreen(
                 modifier = Modifier.padding(innerPadding),
-                onBack = { screen = AppScreen.HOME },
+                onBack = { screen = AppScreen.MAP },
                 onOpenImportExport = {
                     importExportReturnScreen = AppScreen.ROUTES
                     screen = AppScreen.IMPORT_EXPORT
@@ -344,7 +332,7 @@ private fun LinienbegleiterApp(
 
             AppScreen.CREATE -> CreateRouteScreen(
                 modifier = Modifier.padding(innerPadding),
-                onBack = { screen = AppScreen.HOME },
+                onBack = { screen = AppScreen.MAP },
                 onAddPoints = { screen = AppScreen.ADD_POINTS },
                 onDraw = { screen = AppScreen.DRAW }
             )
@@ -374,7 +362,7 @@ private fun LinienbegleiterApp(
                 onCameraPositionChanged = { mapCameraPosition = it },
                 recordingId = recordingId,
                 onRecordingIdChanged = { recordingId = it },
-                onBack = { screen = AppScreen.HOME }
+                onBack = { screen = AppScreen.MAP }
             )
 
             AppScreen.FOLLOWING -> RouteFollowingScreen(
@@ -407,7 +395,7 @@ private fun AppScreen.toMainTab(): MainTab = when (this) {
     AppScreen.SETTINGS -> MainTab.SETTINGS
     AppScreen.CREATE, AppScreen.ADD_POINTS -> MainTab.CREATE
     AppScreen.FOLLOWING -> MainTab.NAVIGATION
-    else -> MainTab.HOME
+    else -> MainTab.MAP
 }
 
 @Composable
@@ -417,8 +405,8 @@ private fun MainNavigationBar(
 ) {
     NavigationBar {
         NavigationBarItem(
-            selected = selectedTab == MainTab.HOME,
-            onClick = { onTabSelected(MainTab.HOME) },
+            selected = selectedTab == MainTab.MAP,
+            onClick = { onTabSelected(MainTab.MAP) },
             icon = { Text("⌖", fontSize = 22.sp) },
             label = { Text("Карта", maxLines = 1) }
         )
@@ -446,276 +434,6 @@ private fun MainNavigationBar(
             icon = { Text("⚙", fontSize = 20.sp) },
             label = { Text("Настройки") }
         )
-    }
-}
-
-@Composable
-private fun HomeScreen(
-    modifier: Modifier = Modifier,
-    onCreateRoute: () -> Unit,
-    onRecordRoute: () -> Unit,
-    onOpenRoutes: () -> Unit,
-    onOpenMap: () -> Unit
-) {
-    val context = LocalContext.current
-    val isPreview = LocalInspectionMode.current
-    val database = remember(context, isPreview) {
-        if (isPreview) null else RecordingDatabase.getInstance(context)
-    }
-    val recordings by remember(database) {
-        database?.let { RoomRecordingRepository(it).observeSessions() }
-            ?: flowOf(emptyList())
-    }.collectAsState(initial = emptyList())
-    val editableRoutes by remember(database) {
-        database?.let { RoomEditableRouteRepository(it).observeRoutes() }
-            ?: flowOf(emptyList())
-    }.collectAsState(initial = emptyList())
-    val recentRoute = (
-        recordings.map { RecentRouteSummary(it.title, it.createdAtEpochMillis) } +
-            editableRoutes.map { route ->
-                RecentRouteSummary(route.title, route.createdAtEpochMillis)
-            }
-        ).maxByOrNull(RecentRouteSummary::savedAtEpochMillis)
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(22.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(54.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.primary),
-                contentAlignment = Alignment.Center
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.ic_launcher_foreground),
-                    contentDescription = null,
-                    modifier = Modifier.size(52.dp)
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Linienbegleiter",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "Ваш помощник в работе с маршрутами",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(
-                text = "Мои маршруты",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Создавайте и редактируйте автобусные маршруты",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        RecentRouteCard(
-            recentRoute = recentRoute,
-            onClick = onOpenRoutes
-        )
-
-        OutlinedButton(
-            onClick = onOpenMap,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(58.dp),
-            shape = RoundedCornerShape(18.dp)
-        ) {
-            Text("⌖   Открыть карту")
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                onClick = onRecordRoute,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp),
-                shape = RoundedCornerShape(18.dp)
-            ) {
-                Text("Записать маршрут", fontWeight = FontWeight.SemiBold)
-            }
-
-            OutlinedButton(
-                onClick = onCreateRoute,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp),
-                shape = RoundedCornerShape(18.dp)
-            ) {
-                Text("＋   Создать маршрут", fontWeight = FontWeight.SemiBold)
-            }
-        }
-
-        FilledTonalButton(
-            onClick = onOpenRoutes,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp),
-            shape = RoundedCornerShape(18.dp)
-        ) {
-            Text("Открыть список маршрутов")
-        }
-    }
-}
-
-@Composable
-private fun RecentRouteCard(
-    recentRoute: RecentRouteSummary?,
-    onClick: () -> Unit
-) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(26.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "ПОСЛЕДНИЙ МАРШРУТ",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 1.sp
-                )
-                Text(
-                    text = if (recentRoute == null) "Пока пусто" else "Маршрут",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RouteIllustration()
-                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(
-                        text = recentRoute?.title ?: "Начните с первого маршрута",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = if (recentRoute == null) {
-                            "Ваши маршруты будут собраны здесь"
-                        } else {
-                            "Нажмите, чтобы открыть список маршрутов"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RouteIllustration() {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer)
-            .padding(horizontal = 12.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
-        StopDot()
-        Box(
-            modifier = Modifier
-                .width(22.dp)
-                .height(2.dp)
-                .background(MaterialTheme.colorScheme.primary)
-        )
-        StopDot()
-        Box(
-            modifier = Modifier
-                .width(22.dp)
-                .height(2.dp)
-                .background(MaterialTheme.colorScheme.primary)
-        )
-        StopDot()
-    }
-}
-
-@Composable
-private fun StopDot() {
-    Box(
-        modifier = Modifier
-            .size(12.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary)
-    )
-}
-
-@Composable
-private fun RoutesScreen(
-    modifier: Modifier = Modifier,
-    onBack: () -> Unit,
-    onCreateRoute: () -> Unit
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        ScreenHeading(
-            title = "Мои маршруты",
-            subtitle = "Все сохранённые маршруты будут доступны здесь.",
-            onBack = onBack
-        )
-        EmptyStateCard(
-            title = "Пока нет маршрутов",
-            description = "Создайте первый маршрут — он появится в этом списке.",
-            symbol = "↗"
-        )
-        Button(
-            onClick = onCreateRoute,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(58.dp),
-            shape = RoundedCornerShape(18.dp)
-        ) {
-            Text("＋   Создать маршрут", fontWeight = FontWeight.SemiBold)
-        }
     }
 }
 
@@ -1039,21 +757,6 @@ private fun EmptyStateCard(
                 text = description,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun HomeScreenPreview() {
-    LinienbegleiterTheme {
-        Surface {
-            HomeScreen(
-                onCreateRoute = {},
-                onRecordRoute = {},
-                onOpenRoutes = {},
-                onOpenMap = {}
             )
         }
     }
