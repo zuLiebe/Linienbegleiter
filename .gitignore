@@ -1,0 +1,40 @@
+# Gradle files
+.gradle/
+build/
+app/build/
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Android Studio / IntelliJ cache & user files
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+.idea/deploymentTargetSelector.xml
+.idea/deviceStreaming.xml
+
+# macOS / OS system files
+.DS_Store
+Thumbs.db
+
+# Android NDK / C++
+.externalNativeBuild/
+.cxx/
+
+# Captured logs / profiles
+/captures
+*.hprof
+
+# Kotlin compiler & artifacts
+.kotlin/
+.artifacts/

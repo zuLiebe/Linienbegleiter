@@ -1,0 +1,42 @@
+image: eclipse-temurin:17-jdk
+
+variables:
+  ANDROID_COMPILE_SDK: "37"
+  ANDROID_BUILD_TOOLS: "35.0.0"
+  ANDROID_SDK_TOOLS: "11076708"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+
+before_script:
+  - apt-get update -qq && apt-get install -y -qq wget unzip
+  - export ANDROID_HOME="${PWD}/android-sdk"
+  - mkdir -p "${ANDROID_HOME}/cmdline-tools"
+  - wget -q https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_SDK_TOOLS}_latest.zip -O android-sdk.zip
+  - unzip -q android-sdk.zip -d "${ANDROID_HOME}/cmdline-tools"
+  - mv "${ANDROID_HOME}/cmdline-tools/cmdline-tools" "${ANDROID_HOME}/cmdline-tools/latest"
+  - export PATH="${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${PATH}"
+  - yes | sdkmanager --licenses > /dev/null || true
+  - sdkmanager "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}" > /dev/null
+  - chmod +x gradlew
+
+stages:
+  - test
+  - build
+
+unit_tests:
+  stage: test
+  script:
+    - ./gradlew :app:testDebugUnitTest
+  artifacts:
+    when: always
+    paths:
+      - app/build/reports/tests/testDebugUnitTest/
+    expire_in: 1 week
+
+build_debug_apk:
+  stage: build
+  script:
+    - ./gradlew :app:assembleDebug
+  artifacts:
+    paths:
+      - app/build/outputs/apk/debug/app-debug.apk
+    expire_in: 1 month
