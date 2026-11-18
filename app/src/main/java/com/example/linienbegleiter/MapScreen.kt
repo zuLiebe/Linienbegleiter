@@ -948,9 +948,9 @@ fun MapScreen(
                                     SymbolLayer(ROUTE_DIRECTION_LAYER_ID, ROUTE_SOURCE_ID)
                                         .withProperties(
                                             PropertyFactory.symbolPlacement(Expression.literal("line")),
-                                            PropertyFactory.symbolSpacing(140f),
+                                            PropertyFactory.symbolSpacing(100f),
                                             PropertyFactory.iconImage(ROUTE_ARROW_ICON_ID),
-                                            PropertyFactory.iconSize(0.68f),
+                                            PropertyFactory.iconSize(0.75f),
                                             PropertyFactory.iconRotationAlignment(Expression.literal("map")),
                                             PropertyFactory.iconKeepUpright(false),
                                             PropertyFactory.iconAllowOverlap(true),

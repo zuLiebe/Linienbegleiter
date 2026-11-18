@@ -1,6 +1,7 @@
 package com.example.linienbegleiter
 
 import android.Manifest
+import com.example.linienbegleiter.data.routes.initialBearingDegrees
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -41,8 +42,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -301,7 +304,74 @@ fun RouteFollowingScreen(
         )
     }
 
-    val activePosition = if (followsThisRoute) {
+    var isSimulating by remember { mutableStateOf(false) }
+    var simulationIndex by remember { mutableIntStateOf(0) }
+    var simulatedPosition by remember { mutableStateOf<RecordingPoint?>(null) }
+
+    val selectedDirection = availableDirections.firstOrNull {
+        it.id == selectedDirectionId
+    }
+    val stopById = routeStops.mapNotNull { stop ->
+        stop.id?.let { it to stop }
+    }.toMap()
+    val startStop = stopById[selectedDirection?.startStopId ?: 0L]
+    val endStop = stopById[selectedDirection?.endStopId ?: 0L]
+
+    val rawDirectionPoints = if (selectedDirection?.isGeometryReversed == true) {
+        routePoints.asReversed().mapIndexed { index, point -> point.copy(sequence = index) }
+    } else {
+        routePoints
+    }
+
+    val directionPoints = if (startStop != null && endStop != null && rawDirectionPoints.size >= 2) {
+        val firstPt = rawDirectionPoints.first()
+        val lastPt = rawDirectionPoints.last()
+        val distToFirstSq = (firstPt.latitude - startStop.latitude).let { it * it } + (firstPt.longitude - startStop.longitude).let { it * it }
+        val distToLastSq = (lastPt.latitude - startStop.latitude).let { it * it } + (lastPt.longitude - startStop.longitude).let { it * it }
+        if (distToLastSq < distToFirstSq) {
+            rawDirectionPoints.asReversed().mapIndexed { index, point -> point.copy(sequence = index) }
+        } else {
+            rawDirectionPoints
+        }
+    } else {
+        rawDirectionPoints
+    }
+
+    LaunchedEffect(isSimulating, directionPoints) {
+        if (isSimulating && directionPoints.isNotEmpty()) {
+            var idx = simulationIndex.coerceIn(directionPoints.indices)
+            while (isSimulating && idx < directionPoints.size) {
+                val pt = directionPoints[idx]
+                val nextPt = directionPoints.getOrNull(idx + 1)
+                val bearing = if (nextPt != null) {
+                    initialBearingDegrees(pt.latitude, pt.longitude, nextPt.latitude, nextPt.longitude).toFloat()
+                } else {
+                    simulatedPosition?.bearingDegrees ?: 0f
+                }
+                simulatedPosition = RecordingPoint(
+                    sequence = pt.sequence,
+                    latitude = pt.latitude,
+                    longitude = pt.longitude,
+                    timestampEpochMillis = System.currentTimeMillis(),
+                    accuracyMeters = 5.0f,
+                    speedMetersPerSecond = 12.0f,
+                    bearingDegrees = bearing,
+                    elapsedRealtimeNanos = System.nanoTime()
+                )
+                recenterToken += 1
+                delay(80L)
+                idx++
+                simulationIndex = idx
+                if (idx >= directionPoints.size) {
+                    idx = 0
+                }
+            }
+        }
+    }
+
+    val activePosition = if (isSimulating) {
+        simulatedPosition
+    } else if (followsThisRoute) {
         followingState.locationSample?.let { sample ->
             RecordingPoint(
                 latitude = sample.latitude,
@@ -316,17 +386,6 @@ fun RouteFollowingScreen(
     } else {
         null
     }
-    val selectedDirection = availableDirections.firstOrNull {
-        it.id == selectedDirectionId
-    }
-    val directionPoints = if (selectedDirection?.isGeometryReversed == true) {
-        routePoints.asReversed().mapIndexed { index, point -> point.copy(sequence = index) }
-    } else {
-        routePoints
-    }
-    val stopById = routeStops.mapNotNull { stop ->
-        stop.id?.let { it to stop }
-    }.toMap()
     val directionStops = selectedDirection?.stopIdsInOrder
         ?.mapIndexedNotNull { index, id ->
             stopById[id]?.copy(
@@ -500,19 +559,27 @@ fun RouteFollowingScreen(
                         containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
                     )
                 ) {
-                    Box(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 10.dp),
-                        contentAlignment = Alignment.Center
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = routeTitle.ifBlank { "Маршрут" },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
                         )
+                        TextButton(
+                            onClick = { isSimulating = !isSimulating },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(if (isSimulating) "⏹ Стоп" else "▶ Симуляция", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
                 if (progress != null) {
