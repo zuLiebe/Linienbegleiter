@@ -8,6 +8,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
 import android.view.WindowManager
+import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -109,29 +110,66 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             var themeMode by remember { mutableStateOf(AppPreferences.themeMode(this@MainActivity)) }
-            var ambientLux by remember { mutableFloatStateOf(100f) }
-            val sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+            var autoDarkTheme by remember { mutableStateOf(false) }
+
+            val sensorManager = remember(this@MainActivity) {
+                getSystemService(Context.SENSOR_SERVICE) as SensorManager
+            }
             val lightSensor = remember(sensorManager) {
                 sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT)
             }
+
             DisposableEffect(sensorManager, lightSensor) {
-                if (lightSensor != null) {
-                    val listener = object : SensorEventListener {
-                        override fun onSensorChanged(event: SensorEvent) {
-                            ambientLux = event.values.firstOrNull()?.coerceAtLeast(0f) ?: ambientLux
+                if (lightSensor == null) return@DisposableEffect onDispose {}
+
+                var pendingTarget: Boolean? = null
+                var debounceJob: kotlinx.coroutines.Job? = null
+                val coroutineScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
+
+                val listener = object : SensorEventListener {
+                    override fun onSensorChanged(event: SensorEvent) {
+                        val lux = event.values.firstOrNull()?.coerceAtLeast(0f) ?: return
+
+                        // Hysteresis calculation:
+                        // Switch to Dark only if lux < 10.0lx
+                        // Switch to Light only if lux > 25.0lx
+                        val desiredDark = when {
+                            lux < 10.0f -> true
+                            lux > 25.0f -> false
+                            else -> pendingTarget ?: autoDarkTheme
                         }
-                        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
+                        if (desiredDark != autoDarkTheme) {
+                            if (pendingTarget != desiredDark) {
+                                pendingTarget = desiredDark
+                                debounceJob?.cancel()
+                                debounceJob = coroutineScope.launch {
+                                    kotlinx.coroutines.delay(40_000L) // 40s debounce delay before switching theme
+                                    autoDarkTheme = desiredDark
+                                    pendingTarget = null
+                                }
+                            }
+                        } else {
+                            debounceJob?.cancel()
+                            debounceJob = null
+                            pendingTarget = null
+                        }
                     }
-                    sensorManager.registerListener(listener, lightSensor, SensorManager.SENSOR_DELAY_NORMAL)
-                    onDispose { sensorManager.unregisterListener(listener) }
-                } else {
-                    onDispose { }
+
+                    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+                }
+
+                sensorManager.registerListener(listener, lightSensor, SensorManager.SENSOR_DELAY_NORMAL)
+                onDispose {
+                    debounceJob?.cancel()
+                    sensorManager.unregisterListener(listener)
                 }
             }
+
             val darkTheme = when (themeMode) {
                 AppThemeMode.DAY -> false
                 AppThemeMode.NIGHT -> true
-                AppThemeMode.AUTO -> lightSensor != null && ambientLux < 15f
+                AppThemeMode.AUTO -> if (lightSensor != null) autoDarkTheme else false
             }
             LinienbegleiterTheme(darkTheme = darkTheme) {
                 LinienbegleiterApp(
