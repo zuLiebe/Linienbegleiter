@@ -7,6 +7,8 @@ import com.example.linienbegleiter.data.local.EditableRouteDirectionStopEntity
 import com.example.linienbegleiter.data.local.EditableRouteEntity
 import com.example.linienbegleiter.data.local.EditableRoutePointEntity
 import com.example.linienbegleiter.data.local.EditableRouteStopEntity
+import com.example.linienbegleiter.data.local.EditableRouteZoneEntity
+import com.example.linienbegleiter.data.local.EditableRouteZoneAnnotationEntity
 import com.example.linienbegleiter.data.local.RecordingDatabase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -46,6 +48,9 @@ interface EditableRouteRepository {
         routeId: String,
         directions: List<EditableRouteDirection>
     ): EditableRouteDetails
+
+    suspend fun saveZone(routeId: String, zone: RouteZone): EditableRouteDetails
+    suspend fun deleteZone(routeId: String, zoneId: String): EditableRouteDetails
 
     fun observeRoutes(): Flow<List<EditableRoute>>
     suspend fun getRoutes(): List<EditableRoute>
@@ -203,12 +208,7 @@ class RoomEditableRouteRepository(
             Triple(pointsWithIds, stopsWithIds, directionsToKeep)
         }
 
-        return EditableRouteDetails(
-            route = updatedRoute.toDomain(),
-            points = persistedData.first,
-            stops = persistedData.second,
-            directions = persistedData.third
-        )
+        return requireNotNull(getDetails(routeId))
     }
 
     override suspend fun updateAppearance(
@@ -231,6 +231,25 @@ class RoomEditableRouteRepository(
         return requireNotNull(getDetails(routeId))
     }
 
+    override suspend fun saveZone(routeId: String, zone: RouteZone): EditableRouteDetails {
+        require(routeDao.getById(routeId) != null) { "Маршрут не найден." }
+        database.withTransaction {
+            routeDao.insertZones(listOf(zone.toEntity(routeId)))
+            if (zone.annotations.isNotEmpty()) {
+                routeDao.insertZoneAnnotations(zone.annotations.map { it.toEntity(zone.id) })
+            }
+        }
+        return requireNotNull(getDetails(routeId))
+    }
+
+    override suspend fun deleteZone(routeId: String, zoneId: String): EditableRouteDetails {
+        require(routeDao.getById(routeId) != null) { "Маршрут не найден." }
+        database.withTransaction {
+            routeDao.deleteZoneById(zoneId)
+        }
+        return requireNotNull(getDetails(routeId))
+    }
+
     override fun observeRoutes(): Flow<List<EditableRoute>> =
         routeDao.observeAll().map { routes -> routes.map(EditableRouteEntity::toDomain) }
 
@@ -243,19 +262,26 @@ class RoomEditableRouteRepository(
             routeDao.observePoints(routeId),
             routeDao.observeStops(routeId),
             routeDao.observeDirections(routeId),
-            routeDao.observeDirectionStops(routeId)
-        ) { route, points, stops, directionEntities, directionStops ->
+            routeDao.observeZones(routeId)
+        ) { route, points, stops, directionEntities, zoneEntities ->
             route?.let {
+                val directionStops = routeDao.observeDirectionStops(routeId)
+                val loadedZones = zoneEntities.map { zone ->
+                    zone.toDomain(
+                        routeDao.getZoneAnnotations(zone.id).map(EditableRouteZoneAnnotationEntity::toDomain)
+                    )
+                }
                 EditableRouteDetails(
                     route = it.toDomain(),
                     points = points.map(EditableRoutePointEntity::toDomain),
                     stops = stops.map(EditableRouteStopEntity::toDomain),
                     directions = directionEntities.map { direction ->
                         direction.toDomain(
-                            directionStops.filter { row -> row.directionId == direction.id }
+                            routeDao.getDirectionStops(direction.id)
                                 .map(EditableRouteDirectionStopEntity::stopId)
                         )
-                    }
+                    },
+                    zones = loadedZones
                 )
             }
         }
@@ -272,7 +298,8 @@ class RoomEditableRouteRepository(
             route = route,
             points = routeDao.getPoints(routeId).map(EditableRoutePointEntity::toDomain),
             stops = routeDao.getStops(routeId).map(EditableRouteStopEntity::toDomain),
-            directions = loadDirections(routeId)
+            directions = loadDirections(routeId),
+            zones = loadZones(routeId)
         )
     }
 
@@ -283,6 +310,14 @@ class RoomEditableRouteRepository(
                 routeDao.getDirectionStops(direction.id)
                     .map(EditableRouteDirectionStopEntity::stopId)
             )
+        }
+    }
+
+    private suspend fun loadZones(routeId: String): List<RouteZone> {
+        val zones = routeDao.getZones(routeId)
+        return zones.map { zone ->
+            val annotations = routeDao.getZoneAnnotations(zone.id).map(EditableRouteZoneAnnotationEntity::toDomain)
+            zone.toDomain(annotations)
         }
     }
 
@@ -448,3 +483,42 @@ private fun EditableRouteDirectionEntity.toDomain(stopIds: List<Long>) =
         stopIdsInOrder = stopIds
     )
 
+private fun RouteZone.toEntity(routeId: String) = EditableRouteZoneEntity(
+    id = id,
+    routeId = routeId,
+    title = title,
+    centerLatitude = centerLatitude,
+    centerLongitude = centerLongitude,
+    radiusMeters = radiusMeters,
+    targetZoom = targetZoom,
+    metadataJson = metadataJson
+)
+
+private fun EditableRouteZoneEntity.toDomain(annotations: List<RouteZoneAnnotation>) = RouteZone(
+    id = id,
+    routeId = routeId,
+    title = title,
+    centerLatitude = centerLatitude,
+    centerLongitude = centerLongitude,
+    radiusMeters = radiusMeters,
+    targetZoom = targetZoom,
+    annotations = annotations,
+    metadataJson = metadataJson
+)
+
+private fun RouteZoneAnnotation.toEntity(zoneId: String) = EditableRouteZoneAnnotationEntity(
+    id = id,
+    zoneId = zoneId,
+    annotationType = annotationType.name,
+    label = label,
+    geometryJson = geometryJson
+)
+
+private fun EditableRouteZoneAnnotationEntity.toDomain() = RouteZoneAnnotation(
+    id = id,
+    zoneId = zoneId,
+    annotationType = runCatching { RouteZoneAnnotationType.valueOf(annotationType) }
+        .getOrDefault(RouteZoneAnnotationType.LABEL),
+    label = label,
+    geometryJson = geometryJson
+)

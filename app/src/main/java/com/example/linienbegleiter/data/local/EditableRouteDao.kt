@@ -51,6 +51,33 @@ interface EditableRouteDao {
     @Query("SELECT * FROM editable_route_direction_stops ORDER BY directionId, sequence")
     suspend fun getAllDirectionStopsForBackup(): List<EditableRouteDirectionStopEntity>
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertZones(zones: List<EditableRouteZoneEntity>)
+
+    @Query("SELECT * FROM editable_route_zones ORDER BY routeId, title")
+    suspend fun getAllZonesForBackup(): List<EditableRouteZoneEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertZoneAnnotations(annotations: List<EditableRouteZoneAnnotationEntity>)
+
+    @Query("SELECT * FROM editable_route_zone_annotations ORDER BY zoneId")
+    suspend fun getAllZoneAnnotationsForBackup(): List<EditableRouteZoneAnnotationEntity>
+
+    @Query("SELECT * FROM editable_route_zones WHERE routeId = :routeId ORDER BY title ASC")
+    suspend fun getZones(routeId: String): List<EditableRouteZoneEntity>
+
+    @Query("SELECT * FROM editable_route_zones WHERE routeId = :routeId ORDER BY title ASC")
+    fun observeZones(routeId: String): Flow<List<EditableRouteZoneEntity>>
+
+    @Query("SELECT * FROM editable_route_zone_annotations WHERE zoneId = :zoneId")
+    suspend fun getZoneAnnotations(zoneId: String): List<EditableRouteZoneAnnotationEntity>
+
+    @Query("DELETE FROM editable_route_zones WHERE routeId = :routeId")
+    suspend fun deleteZones(routeId: String)
+
+    @Query("DELETE FROM editable_route_zones WHERE id = :zoneId")
+    suspend fun deleteZoneById(zoneId: String)
+
     @Query("SELECT * FROM editable_routes ORDER BY createdAtEpochMillis DESC")
     fun observeAll(): Flow<List<EditableRouteEntity>>
 

@@ -48,11 +48,39 @@ data class EditableRouteDirection(
     val stopIdsInOrder: List<Long>
 )
 
+enum class RouteZoneAnnotationType {
+    PLATFORM,
+    APPROACH_LINE,
+    ARROW,
+    LABEL
+}
+
+data class RouteZoneAnnotation(
+    val id: Long = 0L,
+    val zoneId: String,
+    val annotationType: RouteZoneAnnotationType,
+    val label: String? = null,
+    val geometryJson: String
+)
+
+data class RouteZone(
+    val id: String,
+    val routeId: String,
+    val title: String,
+    val centerLatitude: Double,
+    val centerLongitude: Double,
+    val radiusMeters: Double,
+    val targetZoom: Float = 18.0f,
+    val annotations: List<RouteZoneAnnotation> = emptyList(),
+    val metadataJson: String? = null
+)
+
 data class EditableRouteDetails(
     val route: EditableRoute,
     val points: List<EditableRoutePoint>,
     val stops: List<EditableRouteStop>,
-    val directions: List<EditableRouteDirection> = emptyList()
+    val directions: List<EditableRouteDirection> = emptyList(),
+    val zones: List<RouteZone> = emptyList()
 )
 
 data class RouteDraftStop(

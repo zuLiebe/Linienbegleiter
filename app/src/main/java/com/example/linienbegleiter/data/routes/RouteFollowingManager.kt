@@ -28,25 +28,21 @@ class RouteFollowingManager(
     private val scope: CoroutineScope,
     private val locationConfig: LocationRequestConfig = LocationRequestConfig()
 ) {
-    private val mutex = Mutex()
     private val mutableState = MutableStateFlow(RouteFollowingState())
+    val state: StateFlow<RouteFollowingState> = mutableState.asStateFlow()
+
+    private val mutex = Mutex()
     private var route: FollowingRoute? = null
     private var lastProgressMeters = 0.0
 
-    val state: StateFlow<RouteFollowingState> = mutableState.asStateFlow()
-
-    suspend fun startFollowing(
+    suspend fun start(
         routeId: String,
         source: RouteFollowSource,
         directionId: String? = null
-    ) {
+    ) = withContext(Dispatchers.Default) {
         mutex.withLock {
-            if (mutableState.value.isActive &&
-                mutableState.value.routeId == routeId &&
-                mutableState.value.source == source &&
-                mutableState.value.directionId == directionId
-            ) return
-            check(!mutableState.value.isActive) {
+            val currentState = mutableState.value
+            require(!currentState.isActive || (currentState.routeId == routeId && currentState.source == source && currentState.directionId == directionId)) {
                 "Сначала завершите текущее следование по маршруту."
             }
             val loadedRoute = loadRoute(routeId, source, directionId)
@@ -64,6 +60,7 @@ class RouteFollowingManager(
                 locationStatus = LocationProviderStatus.WaitingForSignal,
                 routePoints = loadedRoute.points,
                 stops = loadedRoute.stops,
+                zones = loadedRoute.zones,
                 progress = RouteProgressCalculator.calculate(
                     loadedRoute.points,
                     loadedRoute.stops,
@@ -81,21 +78,31 @@ class RouteFollowingManager(
         )
     }
 
-    fun stopFollowing() {
+    suspend fun stop() = withContext(Dispatchers.Default) {
         locationProvider.stop()
-        route = null
-        lastProgressMeters = 0.0
-        mutableState.value = RouteFollowingState()
+        mutex.withLock {
+            route = null
+            lastProgressMeters = 0.0
+            mutableState.value = RouteFollowingState()
+        }
     }
 
+    fun stopFollowing() {
+        scope.launch(Dispatchers.Default) { stop() }
+    }
+
+    suspend fun startFollowing(
+        routeId: String,
+        source: RouteFollowSource,
+        directionId: String? = null
+    ) = start(routeId, source, directionId)
+
     fun reportError(message: String) {
-        locationProvider.stop()
-        route = null
-        lastProgressMeters = 0.0
-        mutableState.value = mutableState.value.copy(
-            isActive = false,
-            errorMessage = message
-        )
+        scope.launch(Dispatchers.Default) {
+            mutex.withLock {
+                mutableState.value = mutableState.value.copy(errorMessage = message, isActive = false)
+            }
+        }
     }
 
     private suspend fun loadRoute(
@@ -106,21 +113,21 @@ class RouteFollowingManager(
         when (source) {
             RouteFollowSource.ORIGINAL_RECORDING -> {
                 val details = requireNotNull(recordingRepository.getDetails(routeId)) {
-                    "Исходный маршрут не найден."
+                    "Исходная запись не найдена."
                 }
                 check(details.session.status == RecordingStatus.FINISHED) {
-                    "Следовать можно только по завершённой GPS-записи."
+                    "Следование можно запустить только по завершённой записи."
                 }
                 FollowingRoute(
                     id = routeId,
                     directionId = null,
                     title = details.session.title,
-                    points = details.points.map {
+                    points = details.points.mapIndexed { index, point ->
                         FollowingRoutePoint(
-                            sequence = it.sequence,
-                            latitude = it.latitude,
-                            longitude = it.longitude,
-                            timestampEpochMillis = it.timestampEpochMillis
+                            sequence = index,
+                            latitude = point.latitude,
+                            longitude = point.longitude,
+                            timestampEpochMillis = point.timestampEpochMillis
                         )
                     },
                     stops = details.stops.mapIndexed { index, stop ->
@@ -129,9 +136,11 @@ class RouteFollowingManager(
                             name = stop.name,
                             latitude = stop.latitude,
                             longitude = stop.longitude,
+                            routePointSequence = null,
                             id = null
                         )
-                    }
+                    },
+                    zones = emptyList()
                 )
             }
 
@@ -141,9 +150,10 @@ class RouteFollowingManager(
                 }
                 val direction = directionId?.let { selectedId ->
                     requireNotNull(details.directions.firstOrNull { it.id == selectedId }) {
-                        "Выбранное направление не найдено."
+                        "Направление маршрута не найдено."
                     }
-                }
+                } ?: details.directions.firstOrNull()
+
                 val sourcePoints = details.points.map {
                     FollowingRoutePoint(
                         sequence = it.sequence,
@@ -189,7 +199,8 @@ class RouteFollowingManager(
                     directionId = direction?.id,
                     title = details.route.title,
                     points = directedPoints,
-                    stops = directedStops
+                    stops = directedStops,
+                    zones = details.zones
                 )
             }
         }
@@ -216,6 +227,25 @@ class RouteFollowingManager(
                     ).also { lastProgressMeters = it.progressMeters }
                 }
 
+                val currentLat = sample.latitude
+                val currentLon = sample.longitude
+                val existingActiveZone = oldState.activeZone
+
+                val evaluatedActiveZone = if (existingActiveZone != null) {
+                    val distToExisting = calculateDistanceMeters(currentLat, currentLon, existingActiveZone.centerLatitude, existingActiveZone.centerLongitude)
+                    if (distToExisting <= existingActiveZone.radiusMeters + 25.0) { // 25m hysteresis buffer
+                        existingActiveZone
+                    } else {
+                        loadedRoute.zones.firstOrNull { zone ->
+                            calculateDistanceMeters(currentLat, currentLon, zone.centerLatitude, zone.centerLongitude) <= zone.radiusMeters
+                        }
+                    }
+                } else {
+                    loadedRoute.zones.firstOrNull { zone ->
+                        calculateDistanceMeters(currentLat, currentLon, zone.centerLatitude, zone.centerLongitude) <= zone.radiusMeters
+                    }
+                }
+
                 val totalDist = snapshot?.totalDistanceMeters ?: 0.0
                 val progDist = snapshot?.progressMeters ?: 0.0
                 val isArrived = totalDist > 0.0 &&
@@ -231,6 +261,8 @@ class RouteFollowingManager(
                     locationStatus = LocationProviderStatus.ProviderAvailable(sample.sourceProvider),
                     locationSample = sample,
                     progress = snapshot,
+                    activeZone = evaluatedActiveZone,
+                    activeZoneTargetZoom = evaluatedActiveZone?.targetZoom,
                     isArrivedAtDestination = isArrived || oldState.isArrivedAtDestination,
                     suggestedNextRoutes = suggestions
                 )
@@ -241,80 +273,81 @@ class RouteFollowingManager(
     private suspend fun buildNextRouteSuggestions(
         currentRoute: FollowingRoute,
         source: RouteFollowSource?
-    ): List<NextRouteSuggestion> = withContext(Dispatchers.IO) {
+    ): List<NextRouteSuggestion> {
         val result = mutableListOf<NextRouteSuggestion>()
-        val currentTerminalStop = currentRoute.stops.lastOrNull()?.name?.trim()
-        val currentFirstStop = currentRoute.stops.firstOrNull()?.name?.trim()
-        val currentTitle = currentRoute.title.trim()
-
-        if (source == RouteFollowSource.EDITABLE_ROUTE) {
+        if (source == RouteFollowSource.EDITABLE_ROUTE && currentRoute.directionId != null) {
             val details = editableRouteRepository.getDetails(currentRoute.id)
             if (details != null && details.directions.isNotEmpty()) {
                 val otherDirection = details.directions.firstOrNull { it.id != currentRoute.directionId }
                 if (otherDirection != null) {
-                    result += NextRouteSuggestion(
-                        routeId = currentRoute.id,
-                        source = RouteFollowSource.EDITABLE_ROUTE,
-                        directionId = otherDirection.id,
-                        title = currentRoute.title,
-                        subtitle = "Обратный рейс · " + directionDescription(otherDirection.initialBearingDegrees),
-                        isReturnTrip = true
+                    result.add(
+                        NextRouteSuggestion(
+                            routeId = currentRoute.id,
+                            source = RouteFollowSource.EDITABLE_ROUTE,
+                            directionId = otherDirection.id,
+                            title = "Обратный рейс: " + otherDirection.name,
+                            subtitle = "Обратный рейс · " + directionDescription(otherDirection.initialBearingDegrees),
+                            isReturnTrip = true
+                        )
                     )
                 }
             }
         }
 
-        val editableRoutes = editableRouteRepository.getRoutes()
-        for (routeItem in editableRoutes) {
+        val allRoutes = editableRouteRepository.getRoutes()
+        for (routeItem in allRoutes) {
             if (routeItem.id == currentRoute.id && currentRoute.directionId == null) continue
             val details = editableRouteRepository.getDetails(routeItem.id) ?: continue
-            val firstStopName = details.stops.firstOrNull()?.name?.trim()
-            val lastStopName = details.stops.lastOrNull()?.name?.trim()
-
-            val startsAtTerminal = !currentTerminalStop.isNullOrBlank() &&
-                firstStopName?.equals(currentTerminalStop, ignoreCase = true) == true
-            val endsAtFirstStop = !currentFirstStop.isNullOrBlank() &&
-                lastStopName?.equals(currentFirstStop, ignoreCase = true) == true
-            val isSimilarTitle = routeItem.title.equals(currentTitle, ignoreCase = true) ||
-                (currentTitle.length >= 2 && routeItem.title.startsWith(currentTitle.take(2), ignoreCase = true))
-
-            if (startsAtTerminal || endsAtFirstStop || isSimilarTitle) {
-                val isReturn = (startsAtTerminal && endsAtFirstStop) || endsAtFirstStop
-                val subtitle = when {
-                    isReturn -> "Обратное направление"
-                    startsAtTerminal -> "Отправление с остановки " + currentTerminalStop
-                    else -> "Похожий маршрут"
-                }
+            val lastStop = currentRoute.stops.lastOrNull()
+            if (lastStop != null) {
                 if (details.directions.isNotEmpty()) {
                     val bestDir = details.directions.firstOrNull()
-                    result += NextRouteSuggestion(
-                        routeId = routeItem.id,
-                        source = RouteFollowSource.EDITABLE_ROUTE,
-                        directionId = bestDir?.id,
-                        title = routeItem.title,
-                        subtitle = subtitle,
-                        isReturnTrip = isReturn
+                    result.add(
+                        NextRouteSuggestion(
+                            routeId = routeItem.id,
+                            source = RouteFollowSource.EDITABLE_ROUTE,
+                            directionId = bestDir?.id,
+                            title = routeItem.title,
+                            subtitle = "Маршрут от этой станции",
+                            isReturnTrip = false
+                        )
                     )
                 } else {
-                    result += NextRouteSuggestion(
-                        routeId = routeItem.id,
-                        source = RouteFollowSource.EDITABLE_ROUTE,
-                        directionId = null,
-                        title = routeItem.title,
-                        subtitle = subtitle,
-                        isReturnTrip = isReturn
+                    result.add(
+                        NextRouteSuggestion(
+                            routeId = routeItem.id,
+                            source = RouteFollowSource.EDITABLE_ROUTE,
+                            directionId = null,
+                            title = routeItem.title,
+                            subtitle = "Сохранённый маршрут",
+                            isReturnTrip = false
+                        )
                     )
                 }
             }
         }
+        return result.distinctBy { Pair(it.routeId, it.directionId) }
+    }
 
-        result.distinctBy { Pair(it.routeId, it.directionId) }
-            .sortedByDescending { it.isReturnTrip }
-            .take(5)
+    private fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val R = 6371000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = sin(dLat / 2) * sin(dLat / 2) +
+            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
+            sin(dLon / 2) * sin(dLon / 2)
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return R * c
     }
 
     private fun onLocationStatusChanged(status: LocationProviderStatus) {
-        mutableState.value = mutableState.value.copy(locationStatus = status)
+        scope.launch(Dispatchers.Default) {
+            mutex.withLock {
+                val oldState = mutableState.value
+                if (!oldState.isActive) return@withLock
+                mutableState.value = oldState.copy(locationStatus = status)
+            }
+        }
     }
 
     private data class FollowingRoute(
@@ -322,7 +355,8 @@ class RouteFollowingManager(
         val directionId: String?,
         val title: String,
         val points: List<FollowingRoutePoint>,
-        val stops: List<FollowingRouteStop>
+        val stops: List<FollowingRouteStop>,
+        val zones: List<RouteZone> = emptyList()
     )
 
     private companion object {
@@ -354,193 +388,172 @@ private object RouteProgressCalculator {
         longitude: Double,
         previousProgressMeters: Double
     ): RouteProgressSnapshot {
-        val segments = buildSegments(points)
-        val totalDistance = segments.lastOrNull()?.let {
-            it.cumulativeStartMeters + it.lengthMeters
-        } ?: 0.0
-        val projections = segments.mapNotNull { project(latitude, longitude, points, it) }
-        val nearbyCandidates = projections.filter {
-            it.routeMeters >= (previousProgressMeters - BACKTRACK_WINDOW_METERS).coerceAtLeast(0.0) &&
-                it.routeMeters <= previousProgressMeters + LOOKAHEAD_WINDOW_METERS
+        if (points.size < 2) {
+            return RouteProgressSnapshot(
+                progressMeters = 0.0,
+                totalDistanceMeters = 0.0,
+                distanceToRouteMeters = null,
+                previousStop = stops.firstOrNull(),
+                distanceFromPreviousStopMeters = null,
+                nextStop = stops.getOrNull(1),
+                distanceToNextStopMeters = null,
+                remainingPoints = points
+            )
         }
-        val closest = (nearbyCandidates.ifEmpty { projections })
-            .minByOrNull(Projection::deviationMeters)
-        val acceptedProgress = closest?.takeIf {
-            it.deviationMeters <= MAX_ADVANCE_DISTANCE_METERS
-        }?.routeMeters
-        val progress = if (acceptedProgress == null) {
-            previousProgressMeters.coerceIn(0.0, totalDistance)
-        } else {
-            maxOf(previousProgressMeters, acceptedProgress).coerceIn(0.0, totalDistance)
-        }
-        val displayProjection = projectionAtDistance(points, segments, progress)
-        val orderedStops = stops.map { stop ->
-            stop to stopDistanceMeters(stop, points, segments)
-        }.filter { it.second != null }
-            .sortedWith(compareBy<Pair<FollowingRouteStop, Double?>> { it.second }.thenBy { it.first.sequence })
-        val previous = orderedStops.lastOrNull { (_, distance) ->
-            requireNotNull(distance) < progress - STOP_PASSING_TOLERANCE_METERS
-        }
-        val next = orderedStops.firstOrNull { (_, distance) ->
-            requireNotNull(distance) >= progress - STOP_PASSING_TOLERANCE_METERS
-        }
-        val distanceFromPreviousStop = previous?.second?.let { (progress - it).coerceAtLeast(0.0) }
-        val distanceToNextStop = next?.second?.let { (it - progress).coerceAtLeast(0.0) }
 
-        return RouteProgressSnapshot(
-            progressMeters = progress,
-            totalDistanceMeters = totalDistance,
-            distanceToRouteMeters = closest?.deviationMeters,
-            previousStop = previous?.first,
-            distanceFromPreviousStopMeters = distanceFromPreviousStop,
-            nextStop = next?.first,
-            distanceToNextStopMeters = distanceToNextStop,
-            remainingPoints = remainingRoute(points, segments, displayProjection)
-        )
-    }
-
-    private fun buildSegments(points: List<FollowingRoutePoint>): List<Segment> {
-        var cumulativeDistance = 0.0
-        val result = mutableListOf<Segment>()
-        for (index in 0 until points.lastIndex) {
-            val first = points[index]
-            val second = points[index + 1]
-            if (!isContinuous(first, second)) continue
+        var cumulative = 0.0
+        val segments = points.zipWithNext().mapIndexed { index, (first, second) ->
             val length = distanceMeters(
                 first.latitude,
                 first.longitude,
                 second.latitude,
                 second.longitude
             )
-            if (length <= MIN_SEGMENT_LENGTH_METERS) continue
-            result += Segment(index, index + 1, length, cumulativeDistance)
-            cumulativeDistance += length
+            val segment = Segment(index, index + 1, length, cumulative)
+            cumulative += length
+            segment
         }
-        return result
-    }
+        val totalDistance = cumulative
 
-    private fun isContinuous(
-        first: FollowingRoutePoint,
-        second: FollowingRoutePoint
-    ): Boolean {
-        val firstTime = first.timestampEpochMillis ?: return true
-        val secondTime = second.timestampEpochMillis ?: return true
-        val timeDelta = secondTime - firstTime
-        if (timeDelta <= 0L || timeDelta > MAX_CONNECTED_GAP_MILLIS) return false
-        val distance = distanceMeters(
-            first.latitude,
-            first.longitude,
-            second.latitude,
-            second.longitude
+        val projections = segments.map { segment ->
+            val first = points[segment.startIndex]
+            val second = points[segment.endIndex]
+            projectPointOnSegment(
+                pointLat = latitude,
+                pointLon = longitude,
+                segmentLat1 = first.latitude,
+                segmentLon1 = first.longitude,
+                segmentLat2 = second.latitude,
+                segmentLon2 = second.longitude,
+                segment = segment
+            )
+        }
+
+        val bestProjection = projections
+            .minByOrNull { projection ->
+                val progressDifference = Math.abs(projection.routeMeters - previousProgressMeters)
+                projection.deviationMeters + progressDifference * 0.12
+            }
+            ?: projections.minByOrNull { it.deviationMeters }
+            ?: Projection(segments.first(), 0.0, 0.0, 0.0, latitude, longitude)
+
+        val boundedProgress = bestProjection.routeMeters.coerceIn(
+            previousProgressMeters,
+            totalDistance
         )
-        return distance / (timeDelta / 1_000.0) <= MAX_PLAUSIBLE_SPEED_METERS_PER_SECOND
+
+        val remainingPoints = mutableListOf<FollowingRoutePoint>()
+        remainingPoints.add(
+            FollowingRoutePoint(
+                sequence = bestProjection.segment.startIndex,
+                latitude = bestProjection.latitude,
+                longitude = bestProjection.longitude
+            )
+        )
+        remainingPoints.addAll(points.drop(bestProjection.segment.endIndex))
+
+        val stopProjections = stops.map { stop ->
+            val stopProjection = projections.minByOrNull { projection ->
+                distanceMeters(
+                    stop.latitude,
+                    stop.longitude,
+                    projection.latitude,
+                    projection.longitude
+                )
+            }
+            val routeMeters = stopProjection?.routeMeters ?: 0.0
+            stop to routeMeters
+        }
+
+        val previousStopEntry = stopProjections
+            .filter { it.second <= boundedProgress + 1.0 }
+            .maxByOrNull { it.second }
+        val nextStopEntry = stopProjections
+            .filter { it.second > boundedProgress + 1.0 }
+            .minByOrNull { it.second }
+
+        val previousStop = previousStopEntry?.first ?: stops.firstOrNull()
+        val nextStop = nextStopEntry?.first
+
+        val distanceFromPreviousStop = previousStopEntry?.let {
+            (boundedProgress - it.second).coerceAtLeast(0.0)
+        }
+        val distanceToNextStop = nextStopEntry?.let {
+            (it.second - boundedProgress).coerceAtLeast(0.0)
+        }
+
+        return RouteProgressSnapshot(
+            progressMeters = boundedProgress,
+            totalDistanceMeters = totalDistance,
+            distanceToRouteMeters = bestProjection.deviationMeters,
+            previousStop = previousStop,
+            distanceFromPreviousStopMeters = distanceFromPreviousStop,
+            nextStop = nextStop,
+            distanceToNextStopMeters = distanceToNextStop,
+            remainingPoints = remainingPoints
+        )
     }
 
-    private fun project(
-        latitude: Double,
-        longitude: Double,
-        points: List<FollowingRoutePoint>,
+    private fun projectPointOnSegment(
+        pointLat: Double,
+        pointLon: Double,
+        segmentLat1: Double,
+        segmentLon1: Double,
+        segmentLat2: Double,
+        segmentLon2: Double,
         segment: Segment
     ): Projection {
-        val first = points[segment.startIndex]
-        val second = points[segment.endIndex]
-        val radiansPerDegree = Math.PI / 180.0
-        val referenceLatitude = Math.toRadians((first.latitude + second.latitude) / 2.0)
-        val scaleX = EARTH_RADIUS_METERS * cos(referenceLatitude)
-        val scaleY = EARTH_RADIUS_METERS
-        val pointX = (longitude - first.longitude) * radiansPerDegree * scaleX
-        val pointY = (latitude - first.latitude) * radiansPerDegree * scaleY
-        val segmentX = (second.longitude - first.longitude) * radiansPerDegree * scaleX
-        val segmentY = (second.latitude - first.latitude) * radiansPerDegree * scaleY
-        val lengthSquared = segmentX * segmentX + segmentY * segmentY
-        val fraction = ((pointX * segmentX + pointY * segmentY) / lengthSquared)
-            .coerceIn(0.0, 1.0)
-        val projectedX = segmentX * fraction
-        val projectedY = segmentY * fraction
-        val projectedLatitude = first.latitude +
-            Math.toDegrees(projectedY / scaleY)
-        val projectedLongitude = first.longitude +
-            Math.toDegrees(projectedX / scaleX)
-        return Projection(
-            segment = segment,
-            fraction = fraction,
-            routeMeters = segment.cumulativeStartMeters + segment.lengthMeters * fraction,
-            deviationMeters = hypot(pointX - projectedX, pointY - projectedY),
-            latitude = projectedLatitude,
-            longitude = projectedLongitude
-        )
-    }
+        val deltaLat = segmentLat2 - segmentLat1
+        val deltaLon = segmentLon2 - segmentLon1
+        val segmentLengthSq = deltaLat * deltaLat + deltaLon * deltaLon
 
-    private fun projectionAtDistance(
-        points: List<FollowingRoutePoint>,
-        segments: List<Segment>,
-        routeMeters: Double
-    ): Projection? {
-        val segment = segments.firstOrNull {
-            routeMeters <= it.cumulativeStartMeters + it.lengthMeters
-        } ?: return null
+        if (segmentLengthSq < 1e-12) {
+            val deviation = distanceMeters(pointLat, pointLon, segmentLat1, segmentLon1)
+            return Projection(
+                segment = segment,
+                fraction = 0.0,
+                routeMeters = segment.cumulativeStartMeters,
+                deviationMeters = deviation,
+                latitude = segmentLat1,
+                longitude = segmentLon1
+            )
+        }
+
         val fraction = (
-            (routeMeters - segment.cumulativeStartMeters) / segment.lengthMeters
-            ).coerceIn(0.0, 1.0)
-        val first = points[segment.startIndex]
-        val second = points[segment.endIndex]
-        val latitude = first.latitude + (second.latitude - first.latitude) * fraction
-        val longitude = first.longitude + (second.longitude - first.longitude) * fraction
+            (pointLat - segmentLat1) * deltaLat +
+                (pointLon - segmentLon1) * deltaLon
+            ) / segmentLengthSq
+        val clampedFraction = fraction.coerceIn(0.0, 1.0)
+
+        val projectedLat = segmentLat1 + clampedFraction * deltaLat
+        val projectedLon = segmentLon1 + clampedFraction * deltaLon
+
+        val routeMeters = segment.cumulativeStartMeters + clampedFraction * segment.lengthMeters
+        val deviationMeters = distanceMeters(pointLat, pointLon, projectedLat, projectedLon)
+
         return Projection(
             segment = segment,
-            fraction = fraction,
+            fraction = clampedFraction,
             routeMeters = routeMeters,
-            deviationMeters = 0.0,
-            latitude = latitude,
-            longitude = longitude
+            deviationMeters = deviationMeters,
+            latitude = projectedLat,
+            longitude = projectedLon
         )
     }
-
-    private fun remainingRoute(
-        points: List<FollowingRoutePoint>,
-        segments: List<Segment>,
-        projection: Projection?
-    ): List<FollowingRoutePoint> {
-        if (projection == null) return points
-        val start = points[projection.segment.startIndex]
-        val projectedPoint = FollowingRoutePoint(
-            sequence = start.sequence,
-            latitude = projection.latitude,
-            longitude = projection.longitude
-        )
-        return listOf(projectedPoint) + points.drop(projection.segment.endIndex)
-    }
-
-    private fun stopDistanceMeters(
-        stop: FollowingRouteStop,
-        points: List<FollowingRoutePoint>,
-        segments: List<Segment>
-    ): Double? =
-        segments.mapNotNull { project(stop.latitude, stop.longitude, points, it) }
-            .minByOrNull(Projection::deviationMeters)
-            ?.routeMeters
 
     private fun distanceMeters(
-        latitudeA: Double,
-        longitudeA: Double,
-        latitudeB: Double,
-        longitudeB: Double
+        latitude1: Double,
+        longitude1: Double,
+        latitude2: Double,
+        longitude2: Double
     ): Double {
-        val latitudeDelta = Math.toRadians(latitudeB - latitudeA)
-        val longitudeDelta = Math.toRadians(longitudeB - longitudeA)
+        val earthRadiusMeters = 6_371_000.0
+        val latitudeDelta = Math.toRadians(latitude2 - latitude1)
+        val longitudeDelta = Math.toRadians(longitude2 - longitude1)
         val a = sin(latitudeDelta / 2) * sin(latitudeDelta / 2) +
-            cos(Math.toRadians(latitudeA)) *
-            cos(Math.toRadians(latitudeB)) *
+            cos(Math.toRadians(latitude1)) *
+            cos(Math.toRadians(latitude2)) *
             sin(longitudeDelta / 2) * sin(longitudeDelta / 2)
-        return 2 * EARTH_RADIUS_METERS * atan2(sqrt(a), sqrt(1 - a))
+        return 2 * earthRadiusMeters * atan2(sqrt(a), sqrt(1 - a))
     }
-
-    private const val EARTH_RADIUS_METERS = 6_371_000.0
-    private const val MAX_CONNECTED_GAP_MILLIS = 60_000L
-    private const val MAX_PLAUSIBLE_SPEED_METERS_PER_SECOND = 45.0
-    private const val MAX_ADVANCE_DISTANCE_METERS = 80.0
-    private const val BACKTRACK_WINDOW_METERS = 80.0
-    private const val LOOKAHEAD_WINDOW_METERS = 250.0
-    private const val STOP_PASSING_TOLERANCE_METERS = 20.0
-    private const val MIN_SEGMENT_LENGTH_METERS = 0.5
 }

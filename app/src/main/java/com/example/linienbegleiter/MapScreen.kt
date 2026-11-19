@@ -88,6 +88,7 @@ import com.example.linienbegleiter.data.location.LocationProviderStatus
 import com.example.linienbegleiter.data.location.LocationRequestConfig
 import com.example.linienbegleiter.data.location.LocationSample
 import com.example.linienbegleiter.data.routes.RouteColorPalette
+import com.example.linienbegleiter.data.routes.RouteZone
 import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
@@ -98,6 +99,7 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
@@ -210,7 +212,8 @@ fun MapScreen(
     directionDrawingEnabled: Boolean = false,
     directionPoints: List<MapRoutePoint> = emptyList(),
     onDirectionDrawn: (List<MapRoutePoint>) -> Unit = {},
-    onFollowRoute: ((String, RouteFollowSource) -> Unit)? = null
+    onFollowRoute: ((String, RouteFollowSource) -> Unit)? = null,
+    routeZones: List<RouteZone> = emptyList()
 ) {
     val context = LocalContext.current
     val database = remember(context) { RecordingDatabase.getInstance(context) }
@@ -295,6 +298,7 @@ fun MapScreen(
     var selectedRouteSectionSource by remember { mutableStateOf<GeoJsonSource?>(null) }
     var previewRouteSectionSource by remember { mutableStateOf<GeoJsonSource?>(null) }
     var currentPositionSource by remember { mutableStateOf<GeoJsonSource?>(null) }
+    var zoneSource by remember { mutableStateOf<GeoJsonSource?>(null) }
     var hasCenteredOnCurrentPosition by remember { mutableStateOf(false) }
     var smoothedCameraBearing by remember { mutableStateOf(0f) }
     var hasStableCameraBearing by remember { mutableStateOf(false) }
@@ -543,6 +547,7 @@ fun MapScreen(
             selectedRoutePointSource?.setGeoJson(
                 buildSelectedRoutePointGeoJson(routePoints, selectedRoutePointSequence)
             )
+            zoneSource?.setGeoJson(buildZonesGeoJson(routeZones))
         }
     }
 
@@ -886,6 +891,10 @@ fun MapScreen(
                                     CURRENT_POSITION_SOURCE_ID,
                                     emptyFeatureCollection()
                                 )
+                                val newZoneSource = GeoJsonSource(
+                                    ZONE_SOURCE_ID,
+                                    emptyFeatureCollection()
+                                )
                                 style.addSource(newRouteSource)
                                 style.addSource(newOriginalComparisonSource)
                                 style.addSource(newPassedRouteSource)
@@ -895,12 +904,38 @@ fun MapScreen(
                                 style.addSource(newSelectedRouteSectionSource)
                                 style.addSource(newPreviewRouteSectionSource)
                                 style.addSource(newCurrentPositionSource)
+                                style.addSource(newZoneSource)
                                 if (routeArrowBitmap != null) {
                                     style.addImage(ROUTE_ARROW_ICON_ID, routeArrowBitmap)
                                 }
                                 if (gpsArrowBitmap != null) {
                                     style.addImage(GPS_ARROW_ICON_ID, gpsArrowBitmap)
                                 }
+                                style.addLayer(
+                                    FillLayer(ZONE_FILL_LAYER_ID, ZONE_SOURCE_ID).withProperties(
+                                        PropertyFactory.fillColor("#176BDF"),
+                                        PropertyFactory.fillOpacity(0.12f)
+                                    )
+                                )
+                                style.addLayer(
+                                    LineLayer(ZONE_OUTLINE_LAYER_ID, ZONE_SOURCE_ID).withProperties(
+                                        PropertyFactory.lineColor("#176BDF"),
+                                        PropertyFactory.lineWidth(2.5f),
+                                        PropertyFactory.lineDasharray(arrayOf(3f, 3f))
+                                    )
+                                )
+                                style.addLayer(
+                                    SymbolLayer(ZONE_LABEL_LAYER_ID, ZONE_SOURCE_ID).withProperties(
+                                        PropertyFactory.textField(Expression.concat(Expression.literal("🔍 "), Expression.get("title"))),
+                                        PropertyFactory.textSize(12f),
+                                        PropertyFactory.textColor("#172B3A"),
+                                        PropertyFactory.textHaloColor("#FFFFFF"),
+                                        PropertyFactory.textHaloWidth(2f),
+                                        PropertyFactory.textAnchor("top"),
+                                        PropertyFactory.textOffset(arrayOf(0f, 0.5f)),
+                                        PropertyFactory.textAllowOverlap(true)
+                                    )
+                                )
                                 style.addLayer(
                                     LineLayer(
                                         ORIGINAL_COMPARISON_LAYER_ID,
@@ -1059,6 +1094,7 @@ fun MapScreen(
                                 selectedRouteSectionSource = newSelectedRouteSectionSource
                                 previewRouteSectionSource = newPreviewRouteSectionSource
                                 currentPositionSource = newCurrentPositionSource
+                                zoneSource = newZoneSource
                                 map.cameraPosition = initialCameraPosition
                                     ?: context.readMapCameraPosition()
                                     ?: HAMBURG_OVERVIEW
@@ -1428,6 +1464,10 @@ private const val SELECTED_ROUTE_SECTION_LAYER_ID = "selected-route-section-laye
 private const val PREVIEW_ROUTE_SECTION_SOURCE_ID = "preview-route-section-source"
 private const val PREVIEW_ROUTE_SECTION_LAYER_ID = "preview-route-section-layer"
 private const val CURRENT_POSITION_SOURCE_ID = "recorded-position-source"
+private const val ZONE_SOURCE_ID = "route-zone-source"
+private const val ZONE_FILL_LAYER_ID = "route-zone-fill-layer"
+private const val ZONE_OUTLINE_LAYER_ID = "route-zone-outline-layer"
+private const val ZONE_LABEL_LAYER_ID = "route-zone-label-layer"
 private const val CURRENT_POSITION_LAYER_ID = "recorded-position-circle"
 private const val NAVIGATION_ZOOM = 15.0
 private const val MIN_NAVIGATION_ZOOM = 13.5
@@ -1757,6 +1797,54 @@ private fun buildCurrentPositionGeoJson(position: RecordingPoint?, bearingDegree
     return JSONObject()
         .put("type", "FeatureCollection")
         .put("features", JSONArray().put(feature))
+        .toString()
+}
+
+private fun buildZonesGeoJson(zones: List<RouteZone>): String {
+    if (zones.isEmpty()) return emptyFeatureCollection()
+    val features = JSONArray()
+    zones.forEach { zone ->
+        val polygonCoordinates = JSONArray()
+        val ring = JSONArray()
+        val pointsCount = 48
+        val radiusKm = zone.radiusMeters / 1000.0
+        val latRad = Math.toRadians(zone.centerLatitude)
+        val lonRad = Math.toRadians(zone.centerLongitude)
+        val earthRadiusKm = 6371.0
+
+        for (i in 0..pointsCount) {
+            val angle = Math.toRadians((i * 360.0 / pointsCount))
+            val pointLatRad = Math.asin(
+                Math.sin(latRad) * Math.cos(radiusKm / earthRadiusKm) +
+                    Math.cos(latRad) * Math.sin(radiusKm / earthRadiusKm) * Math.cos(angle)
+            )
+            val pointLonRad = lonRad + Math.atan2(
+                Math.sin(angle) * Math.sin(radiusKm / earthRadiusKm) * Math.cos(latRad),
+                Math.cos(radiusKm / earthRadiusKm) - Math.sin(latRad) * Math.sin(pointLatRad)
+            )
+            ring.put(JSONArray().put(Math.toDegrees(pointLonRad)).put(Math.toDegrees(pointLatRad)))
+        }
+        polygonCoordinates.put(ring)
+
+        val geometry = JSONObject()
+            .put("type", "Polygon")
+            .put("coordinates", polygonCoordinates)
+
+        val properties = JSONObject()
+            .put("id", zone.id)
+            .put("title", zone.title)
+            .put("targetZoom", zone.targetZoom)
+
+        features.put(
+            JSONObject()
+                .put("type", "Feature")
+                .put("geometry", geometry)
+                .put("properties", properties)
+        )
+    }
+    return JSONObject()
+        .put("type", "FeatureCollection")
+        .put("features", features)
         .toString()
 }
 

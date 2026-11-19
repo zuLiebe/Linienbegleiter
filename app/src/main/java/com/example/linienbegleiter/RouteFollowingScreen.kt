@@ -1,6 +1,7 @@
 package com.example.linienbegleiter
 
 import android.Manifest
+import com.example.linienbegleiter.data.routes.RouteZone
 import com.example.linienbegleiter.data.routes.initialBearingDegrees
 import android.content.ComponentName
 import android.content.Context
@@ -81,6 +82,7 @@ private data class RouteFollowingPreview(
     val points: List<MapRoutePoint>,
     val stops: List<MapRouteStop>,
     val directions: List<EditableRouteDirection> = emptyList(),
+    val zones: List<RouteZone> = emptyList(),
     val routeColorArgb: Int,
     val routeLineWidth: Float
 )
@@ -111,6 +113,7 @@ fun RouteFollowingScreen(
     var routeLineWidth by remember(routeId) { mutableStateOf(5f) }
     var routePoints by remember(routeId) { mutableStateOf(emptyList<MapRoutePoint>()) }
     var routeStops by remember(routeId) { mutableStateOf(emptyList<MapRouteStop>()) }
+    var routeZones by remember(routeId) { mutableStateOf(emptyList<RouteZone>()) }
     var availableDirections by remember(routeId) {
         mutableStateOf(emptyList<EditableRouteDirection>())
     }
@@ -177,6 +180,7 @@ fun RouteFollowingScreen(
                                 )
                             },
                             directions = details.directions,
+                            zones = details.zones,
                             routeColorArgb = details.route.routeColorArgb,
                             routeLineWidth = details.route.routeLineWidth
                         )
@@ -191,6 +195,7 @@ fun RouteFollowingScreen(
             routeIsFinished = preview.isFinished
             routePoints = preview.points
             routeStops = preview.stops
+            routeZones = preview.zones
             availableDirections = preview.directions
             selectedDirectionId = initialDirectionId
                 ?.takeIf { directionId -> preview.directions.any { it.id == directionId } }
@@ -528,6 +533,7 @@ fun RouteFollowingScreen(
                 onBack = onBack,
                 routePoints = displayPoints,
                 routeStops = displayStops,
+                routeZones = routeZones,
                 routeColorArgb = routeColorArgb,
                 routeLineWidth = routeLineWidth,
                 passedRoutePoints = passedRoutePoints,
@@ -579,6 +585,29 @@ fun RouteFollowingScreen(
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text(if (isSimulating) "⏹ Стоп" else "▶ Симуляция", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                followingState.activeZone?.let { zone ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("🔍", fontSize = 14.sp)
+                            Text(
+                                "Детализированная зона: ${zone.title} (масштаб ${"%.1f".format(zone.targetZoom)}x)",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
                         }
                     }
                 }

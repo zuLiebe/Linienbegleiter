@@ -18,9 +18,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         EditableRoutePointEntity::class,
         EditableRouteStopEntity::class,
         EditableRouteDirectionEntity::class,
-        EditableRouteDirectionStopEntity::class
+        EditableRouteDirectionStopEntity::class,
+        EditableRouteZoneEntity::class,
+        EditableRouteZoneAnnotationEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(RecordingTypeConverters::class)
@@ -199,6 +201,43 @@ abstract class RecordingDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `editable_route_zones` (" +
+                        "`id` TEXT NOT NULL, " +
+                        "`routeId` TEXT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`centerLatitude` REAL NOT NULL, " +
+                        "`centerLongitude` REAL NOT NULL, " +
+                        "`radiusMeters` REAL NOT NULL, " +
+                        "`targetZoom` REAL NOT NULL DEFAULT 18.0, " +
+                        "`metadataJson` TEXT, " +
+                        "PRIMARY KEY(`id`), " +
+                        "FOREIGN KEY(`routeId`) REFERENCES `editable_routes`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_editable_route_zones_routeId` " +
+                        "ON `editable_route_zones`(`routeId`)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `editable_route_zone_annotations` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`zoneId` TEXT NOT NULL, " +
+                        "`annotationType` TEXT NOT NULL, " +
+                        "`label` TEXT, " +
+                        "`geometryJson` TEXT NOT NULL, " +
+                        "FOREIGN KEY(`zoneId`) REFERENCES `editable_route_zones`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_editable_route_zone_annotations_zoneId` " +
+                        "ON `editable_route_zone_annotations`(`zoneId`)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: RecordingDatabase? = null
 
@@ -208,7 +247,13 @@ abstract class RecordingDatabase : RoomDatabase() {
                     context.applicationContext,
                     RecordingDatabase::class.java,
                     "linienbegleiter.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+                ).addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6
+                ).build().also { instance = it }
             }
     }
 }

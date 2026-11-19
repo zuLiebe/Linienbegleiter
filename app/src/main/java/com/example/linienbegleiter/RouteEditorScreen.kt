@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import java.util.UUID
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -33,11 +34,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import com.example.linienbegleiter.data.routes.RouteZone
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -86,7 +91,8 @@ private enum class RouteEditorMode {
     EDIT_SECTION,
     ADD_SECTION,
     ADD_STOP,
-    MOVE_STOP
+    MOVE_STOP,
+    ZONES
 }
 
 private data class RouteEditorDraft(
@@ -163,6 +169,7 @@ fun RouteEditorScreen(
     }
     var routeKind by remember(routeId, source) { mutableStateOf(EditableRouteKind.MANUAL) }
     var routeMetadataJson by remember(routeId, source) { mutableStateOf<String?>(null) }
+    val details by routeRepository.observeDetails(routeId).collectAsState(initial = null)
     var isLoading by remember(routeId, source) { mutableStateOf(true) }
     var isSaving by remember { mutableStateOf(false) }
     var errorMessage by remember(routeId, source) { mutableStateOf<String?>(null) }
@@ -193,6 +200,13 @@ fun RouteEditorScreen(
     var hasConfirmedDirection by remember(routeId, source) { mutableStateOf(false) }
     var showDirectionDialog by remember { mutableStateOf(false) }
     var isDirectionDirty by remember(routeId, source) { mutableStateOf(false) }
+
+    var showZoneDialog by remember { mutableStateOf(false) }
+    var zoneTitle by remember { mutableStateOf("") }
+    var zoneTargetZoom by remember { mutableFloatStateOf(18.0f) }
+    var zoneRadiusMeters by remember { mutableDoubleStateOf(80.0) }
+    var pendingZoneCenter by remember { mutableStateOf<LatLng?>(null) }
+    var editingZoneId by remember { mutableStateOf<String?>(null) }
 
     val undoHistory = remember(routeId, source) { mutableStateListOf<RouteEditorDraft>() }
     val redoHistory = remember(routeId, source) { mutableStateListOf<RouteEditorDraft>() }
@@ -464,6 +478,7 @@ fun RouteEditorScreen(
                     onBack = ::requestExit,
                     routePoints = routePoints,
                     routeStops = routeStops,
+                    routeZones = details?.zones ?: emptyList(),
                     routeColorArgb = currentDraft.routeColorArgb,
                     routeLineWidth = currentDraft.routeLineWidth,
                     originalComparisonPoints = originalComparisonPoints,
@@ -632,6 +647,16 @@ fun RouteEditorScreen(
                                 }
                             }
 
+                            RouteEditorMode.ZONES -> {
+                                pendingZoneCenter = position
+                                editingZoneId = null
+                                val currentDetails = details
+                                zoneTitle = "Детализированная зона " + ((currentDetails?.zones?.size ?: 0) + 1)
+                                zoneTargetZoom = 18.0f
+                                zoneRadiusMeters = 80.0
+                                showZoneDialog = true
+                            }
+
                             RouteEditorMode.SELECT -> Unit
                         }
                     },
@@ -737,6 +762,16 @@ fun RouteEditorScreen(
                             errorMessage = null
                         }
                         RouteEditorDockButton(
+                            icon = "🔍",
+                            label = "Детализированные зоны",
+                            selected = mode == RouteEditorMode.ZONES
+                        ) {
+                            mode = RouteEditorMode.ZONES
+                            selectedRouteSection = null
+                            previewSectionPoints = null
+                            errorMessage = null
+                        }
+                        RouteEditorDockButton(
                             icon = "⌖",
                             label = "Переместить выбранную точку",
                             selected = mode == RouteEditorMode.MOVE_POINT,
@@ -836,6 +871,7 @@ fun RouteEditorScreen(
                     RouteEditorMode.ADD_SECTION -> "Коснитесь карты, чтобы продолжить маршрут."
                     RouteEditorMode.ADD_STOP -> "Коснитесь карты, чтобы поставить остановку."
                     RouteEditorMode.MOVE_STOP -> "Коснитесь карты, чтобы перенести остановку."
+                    RouteEditorMode.ZONES -> "Коснитесь карты, чтобы добавить детализированную зону."
                     RouteEditorMode.SELECT -> if (selectedPointSequence == null) {
                         "Выберите инструмент на боковой панели."
                     } else {
@@ -1336,6 +1372,114 @@ fun RouteEditorScreen(
                         pendingStopPosition = null
                     }
                 ) { Text("Отмена") }
+            }
+        )
+    }
+
+    if (showZoneDialog) {
+        AlertDialog(
+            onDismissRequest = { showZoneDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
+            title = { Text("Детализированная зона") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Настройка крупного масштаба для сложного участка (вокзалы, развязки).")
+                    OutlinedTextField(
+                        value = zoneTitle,
+                        onValueChange = { zoneTitle = it },
+                        label = { Text("Название зоны") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Целевой масштаб (Zoom): ${"%.1f".format(zoneTargetZoom)}")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = { zoneTargetZoom = (zoneTargetZoom - 0.5f).coerceAtLeast(17.0f) }) {
+                            Text("−0.5", fontWeight = FontWeight.Bold)
+                        }
+                        Text("${"%.1f".format(zoneTargetZoom)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        TextButton(onClick = { zoneTargetZoom = (zoneTargetZoom + 0.5f).coerceAtMost(19.5f) }) {
+                            Text("+0.5", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Text("Радиус охвата зоны: ${zoneRadiusMeters.toInt()} м")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = { zoneRadiusMeters = (zoneRadiusMeters - 20.0).coerceAtLeast(30.0) }) {
+                            Text("−20м", fontWeight = FontWeight.Bold)
+                        }
+                        Text("${zoneRadiusMeters.toInt()} м", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        TextButton(onClick = { zoneRadiusMeters = (zoneRadiusMeters + 20.0).coerceAtMost(300.0) }) {
+                            Text("+20м", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    val currentDetails = details
+                    if (currentDetails?.zones?.isNotEmpty() == true) {
+                        Text("Существующие зоны:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        currentDetails.zones.forEach { existingZone ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("🔍 ${existingZone.title} (${existingZone.targetZoom}x)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        routeRepository.deleteZone(routeId, existingZone.id)
+                                    }
+                                }) {
+                                    Text("Удалить", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = zoneTitle.isNotBlank() && pendingZoneCenter != null,
+                    onClick = {
+                        val center = pendingZoneCenter
+                        if (center != null) {
+                            val zone = RouteZone(
+                                id = editingZoneId ?: UUID.randomUUID().toString(),
+                                routeId = routeId,
+                                title = zoneTitle.trim(),
+                                centerLatitude = center.latitude,
+                                centerLongitude = center.longitude,
+                                radiusMeters = zoneRadiusMeters,
+                                targetZoom = zoneTargetZoom
+                            )
+                            scope.launch {
+                                routeRepository.saveZone(routeId, zone)
+                                showZoneDialog = false
+                                pendingZoneCenter = null
+                                mode = RouteEditorMode.SELECT
+                            }
+                        }
+                    }
+                ) {
+                    Text("Сохранить зону")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showZoneDialog = false }) {
+                    Text("Отмена")
+                }
             }
         )
     }

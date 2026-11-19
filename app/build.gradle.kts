@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.linienbegleiter"
         minSdk = 26
         targetSdk = 37
-        versionCode = 27
-        versionName = "0.27"
+        versionCode = 28
+        versionName = "0.28"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
