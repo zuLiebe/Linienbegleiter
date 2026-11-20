@@ -24,7 +24,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -37,6 +39,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Surface
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -544,99 +548,106 @@ fun RouteFollowingScreen(
                 showChrome = false
             )
 
-            Column(
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
             ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
+                Surface(
+                    modifier = Modifier.align(Alignment.TopStart),
                     shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    tonalElevation = 4.dp
+                ) {
+                    Text(
+                        text = routeTitle.ifBlank { "Маршрут" },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                }
+
+                Surface(
+                    onClick = { isSimulating = !isSimulating },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(end = 52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (isSimulating) Color(0xFFD32F2F) else Color(0xFF2E7D32),
+                    contentColor = Color.White,
+                    tonalElevation = 4.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(if (isSimulating) "⏹" else "▶", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(if (isSimulating) "Стоп" else "Старт", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            if (followsThisRoute && followingState.isOffRoute) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(top = 52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
+                        containerColor = Color(0xFFD32F2F),
+                        contentColor = Color.White
                     )
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = routeTitle.ifBlank { "Маршрут" },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
-                        )
-                        TextButton(
-                            onClick = { isSimulating = !isSimulating },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(if (isSimulating) "⏹ Стоп" else "▶ Симуляция", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-                if (progress != null) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    "Пройдено ${formatFollowDistance(progress.progressMeters)}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    "След: ${progress.nextStop?.name ?: "нет"}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(horizontal = 4.dp)
-                                )
-                                Text(
-                                    "${(progress.progressMeters / progress.totalDistanceMeters.coerceAtLeast(1.0) * 100.0).roundToInt()}%",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            LinearProgressIndicator(
-                                progress = {
-                                    (progress.progressMeters / progress.totalDistanceMeters.coerceAtLeast(1.0))
-                                        .toFloat()
-                                        .coerceIn(0f, 1f)
-                                },
-                                modifier = Modifier.fillMaxWidth()
+                        Text("⚠️", fontSize = 18.sp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Вы сошли с маршрута!",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            val devMeters = followingState.offRouteDistanceMeters?.roundToInt() ?: 0
+                            val threshold = AppPreferences.offRouteThresholdMeters(context).roundToInt()
+                            Text(
+                                "Отклонение: $devMeters м (порог: $threshold м)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.9f)
                             )
                         }
                     }
-                } else if (anotherRouteIsActive) {
-                    Text(
-                        "Уже выполняется следование по другому маршруту.",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(10.dp),
-                        color = MaterialTheme.colorScheme.error
-                    )
+                }
+            }
+
+            if (anotherRouteIsActive) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(top = 52.dp)
+                ) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                    ) {
+                        Text(
+                            "Уже выполняется следование по другому маршруту.",
+                            modifier = Modifier.padding(10.dp),
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
                 }
             }
 
@@ -869,82 +880,79 @@ private fun FollowingStatusPanel(
     val sample = state.locationSample
     val nextStop = progress?.nextStop
     val previousStop = progress?.previousStop
-    val direction = sample?.bearingDegrees?.let(::directionFromBearing)
     val gpsText = if (sample?.accuracyMeters != null) {
-        "GPS ±${sample.accuracyMeters.toInt()} м"
+        "GPS ±${sample.accuracyMeters.toInt()}м"
     } else {
         locationStatusText(state)
     }
 
-    Card(
-        modifier = modifier.heightIn(max = 156.dp),
-        shape = RoundedCornerShape(18.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
-        )
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = Color(0xEE111827),
+        contentColor = Color.White,
+        tonalElevation = 8.dp,
+        border = BorderStroke(1.5.dp, Color(0xFF3B82F6))
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            Text("🎯", fontSize = 20.sp)
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text(
-                    "Следующая: ${nextStop?.name ?: "нет"}",
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    progress?.distanceToNextStopMeters?.let(::formatFollowDistance) ?: "—",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Text(
-                "Отклонение: ${progress?.distanceToRouteMeters?.let(::formatFollowDistance) ?: "—"}" +
-                    " · Перед: ${previousStop?.name ?: "нет"}" +
-                    (direction?.let { " · ${it.first}" } ?: ""),
-                modifier = Modifier.fillMaxWidth(),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (sample == null || state.locationStatus !is
-                com.example.linienbegleiter.data.location.LocationProviderStatus.ProviderAvailable
-            ) {
-                Text(
-                    gpsText,
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            } else {
-                Text(
-                    gpsText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "СЛЕД: ${nextStop?.name ?: "—"}",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF60A5FA)
+                    )
+                    Text(
+                        text = progress?.distanceToNextStopMeters?.let(::formatFollowDistance) ?: "—",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Откл: ${progress?.distanceToRouteMeters?.let(::formatFollowDistance) ?: "—"} · $gpsText",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF9CA3AF)
+                    )
+                }
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+
+            Surface(
+                onClick = onRecenter,
+                shape = CircleShape,
+                color = Color(0xFF1E3A8A),
+                contentColor = Color.White,
+                modifier = Modifier.size(38.dp)
             ) {
-                OutlinedButton(
-                    onClick = onRecenter,
-                    modifier = Modifier.fillMaxWidth().height(40.dp)
-                ) { Text("Моё место", maxLines = 1) }
+                Box(contentAlignment = Alignment.Center) {
+                    Text("📍", fontSize = 16.sp)
+                }
             }
         }
     }

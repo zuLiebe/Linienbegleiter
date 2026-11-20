@@ -1,5 +1,6 @@
 package com.example.linienbegleiter.data.routes
 
+import com.example.linienbegleiter.AppPreferences
 import com.example.linienbegleiter.data.location.LocationProvider
 import com.example.linienbegleiter.data.location.LocationProviderStatus
 import com.example.linienbegleiter.data.location.LocationRequestConfig
@@ -26,12 +27,17 @@ class RouteFollowingManager(
     private val editableRouteRepository: EditableRouteRepository,
     private val locationProvider: LocationProvider,
     private val scope: CoroutineScope,
-    private val locationConfig: LocationRequestConfig = LocationRequestConfig()
+    private val locationConfig: LocationRequestConfig = LocationRequestConfig(),
+    private val offRouteThresholdProvider: () -> Float = { AppPreferences.DEFAULT_OFF_ROUTE_THRESHOLD_METERS }
 ) {
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(RouteFollowingState())
     private var route: FollowingRoute? = null
     private var lastProgressMeters = 0.0
+
+    private var consecutiveOffRouteCount = 0
+    private var consecutiveOnRouteCount = 0
+    private var isCurrentlyOffRoute = false
 
     val state: StateFlow<RouteFollowingState> = mutableState.asStateFlow()
 
@@ -55,6 +61,9 @@ class RouteFollowingManager(
             }
             route = loadedRoute
             lastProgressMeters = 0.0
+            consecutiveOffRouteCount = 0
+            consecutiveOnRouteCount = 0
+            isCurrentlyOffRoute = false
             mutableState.value = RouteFollowingState(
                 routeId = loadedRoute.id,
                 source = source,
@@ -85,6 +94,9 @@ class RouteFollowingManager(
         locationProvider.stop()
         route = null
         lastProgressMeters = 0.0
+        consecutiveOffRouteCount = 0
+        consecutiveOnRouteCount = 0
+        isCurrentlyOffRoute = false
         mutableState.value = RouteFollowingState()
     }
 
@@ -92,6 +104,9 @@ class RouteFollowingManager(
         locationProvider.stop()
         route = null
         lastProgressMeters = 0.0
+        consecutiveOffRouteCount = 0
+        consecutiveOnRouteCount = 0
+        isCurrentlyOffRoute = false
         mutableState.value = mutableState.value.copy(
             isActive = false,
             errorMessage = message
@@ -227,10 +242,30 @@ class RouteFollowingManager(
                     oldState.suggestedNextRoutes
                 }
 
+                val deviation = snapshot?.distanceToRouteMeters
+                val threshold = offRouteThresholdProvider().toDouble()
+                if (deviation != null && (sample.accuracyMeters == null || sample.accuracyMeters <= MAX_MATCH_ACCURACY_METERS)) {
+                    if (deviation > threshold) {
+                        consecutiveOffRouteCount++
+                        consecutiveOnRouteCount = 0
+                        if (consecutiveOffRouteCount >= 2) {
+                            isCurrentlyOffRoute = true
+                        }
+                    } else {
+                        consecutiveOnRouteCount++
+                        consecutiveOffRouteCount = 0
+                        if (consecutiveOnRouteCount >= 2) {
+                            isCurrentlyOffRoute = false
+                        }
+                    }
+                }
+
                 mutableState.value = oldState.copy(
                     locationStatus = LocationProviderStatus.ProviderAvailable(sample.sourceProvider),
                     locationSample = sample,
                     progress = snapshot,
+                    isOffRoute = isCurrentlyOffRoute,
+                    offRouteDistanceMeters = deviation,
                     isArrivedAtDestination = isArrived || oldState.isArrivedAtDestination,
                     suggestedNextRoutes = suggestions
                 )
@@ -330,7 +365,7 @@ class RouteFollowingManager(
     }
 }
 
-private object RouteProgressCalculator {
+internal object RouteProgressCalculator {
     private data class Segment(
         val startIndex: Int,
         val endIndex: Int,

@@ -55,6 +55,8 @@ data class RouteFollowingState(
     val routePoints: List<FollowingRoutePoint> = emptyList(),
     val stops: List<FollowingRouteStop> = emptyList(),
     val progress: RouteProgressSnapshot? = null,
+    val isOffRoute: Boolean = false,
+    val offRouteDistanceMeters: Double? = null,
     val errorMessage: String? = null,
     val isArrivedAtDestination: Boolean = false,
     val suggestedNextRoutes: List<NextRouteSuggestion> = emptyList()

@@ -54,7 +54,8 @@ class RouteFollowingService : Service() {
             recordingRepository = RoomRecordingRepository(database),
             editableRouteRepository = RoomEditableRouteRepository(database),
             locationProvider = AndroidLocationProvider(this),
-            scope = serviceScope
+            scope = serviceScope,
+            offRouteThresholdProvider = { com.example.linienbegleiter.AppPreferences.offRouteThresholdMeters(this@RouteFollowingService) }
         )
         serviceScope.launch {
             manager.state.collect(::updateNotification)
@@ -187,6 +188,10 @@ class RouteFollowingService : Service() {
         val topSuggestion = state.suggestedNextRoutes.firstOrNull()
         val contentText = when {
             state.errorMessage != null -> state.errorMessage
+            state.isOffRoute -> {
+                val distStr = state.offRouteDistanceMeters?.let(::formatDistance) ?: "—"
+                "Отклонение от трека: $distStr"
+            }
             state.isArrivedAtDestination -> {
                 if (topSuggestion != null) {
                     "Вы прибыли на конечную. Следующий рейс: " + topSuggestion.title
@@ -202,6 +207,7 @@ class RouteFollowingService : Service() {
             } ?: "Следование активно"
         }
         val titleText = when {
+            state.isOffRoute -> "⚠️ Вы сошли с маршрута!"
             state.isArrivedAtDestination -> "🎉 Прибытие на конечную остановку"
             state.title.isNotBlank() -> "Linienbegleiter — " + state.title
             else -> "Linienbegleiter — следование по маршруту"

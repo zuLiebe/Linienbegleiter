@@ -518,6 +518,84 @@ private fun SettingsScreen(
             colors = CardDefaults.cardColors(containerColor = HamburgTransitPalette.White)
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                var offRouteThreshold by remember { mutableFloatStateOf(AppPreferences.offRouteThresholdMeters(context)) }
+                Text("Порог схода с маршрута", style = MaterialTheme.typography.titleMedium, color = HamburgTransitPalette.HarborNavy)
+                Text("Оповещать при отклонении от линии маршрута больше заданной дистанции.", style = MaterialTheme.typography.bodySmall, color = HamburgTransitPalette.MutedGraphite)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TextButton(
+                        onClick = {
+                            val newValue = (offRouteThreshold - AppPreferences.OFF_ROUTE_THRESHOLD_STEP_METERS)
+                                .coerceAtLeast(AppPreferences.MIN_OFF_ROUTE_THRESHOLD_METERS)
+                            offRouteThreshold = newValue
+                            AppPreferences.setOffRouteThresholdMeters(context, newValue)
+                        }
+                    ) { Text("− 5 м", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+
+                    Text(
+                        "${offRouteThreshold.toInt()} м",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = HamburgTransitPalette.HarborNavy
+                    )
+
+                    TextButton(
+                        onClick = {
+                            val newValue = (offRouteThreshold + AppPreferences.OFF_ROUTE_THRESHOLD_STEP_METERS)
+                                .coerceAtMost(AppPreferences.MAX_OFF_ROUTE_THRESHOLD_METERS)
+                            offRouteThreshold = newValue
+                            AppPreferences.setOffRouteThresholdMeters(context, newValue)
+                        }
+                    ) { Text("+ 5 м", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                }
+                Text("Мин: 10 м · По умолчанию: 25 м · Макс: 100 м", style = MaterialTheme.typography.labelSmall, color = HamburgTransitPalette.MutedGraphite)
+            }
+        }
+        Card(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            border = BorderStroke(1.dp, Color(0xFFCCD6E2)),
+            colors = CardDefaults.cardColors(containerColor = HamburgTransitPalette.White)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Элементы управления (Кнопки HUD)", style = MaterialTheme.typography.titleMedium, color = HamburgTransitPalette.HarborNavy)
+                Text("Включение и отключение элементов на карте", style = MaterialTheme.typography.bodySmall, color = HamburgTransitPalette.MutedGraphite)
+
+                var showZoom by remember { mutableStateOf(AppPreferences.showZoomControls(context)) }
+                var show3d by remember { mutableStateOf(AppPreferences.show3dControls(context)) }
+                var showCompass by remember { mutableStateOf(AppPreferences.showCompass(context)) }
+                var showSpeed by remember { mutableStateOf(AppPreferences.showSpeedBadge(context)) }
+
+                TextButton(onClick = {
+                    showZoom = !showZoom
+                    AppPreferences.setShowZoomControls(context, showZoom)
+                }) { Text("Кнопки зума (+/−): ${if (showZoom) "включено" else "выключено"}") }
+
+                TextButton(onClick = {
+                    show3d = !show3d
+                    AppPreferences.setShow3dControls(context, show3d)
+                }) { Text("Кнопка 3D / 2D: ${if (show3d) "включено" else "выключено"}") }
+
+                TextButton(onClick = {
+                    showCompass = !showCompass
+                    AppPreferences.setShowCompass(context, showCompass)
+                }) { Text("Компас (ориентация): ${if (showCompass) "включено" else "выключено"}") }
+
+                TextButton(onClick = {
+                    showSpeed = !showSpeed
+                    AppPreferences.setShowSpeedBadge(context, showSpeed)
+                }) { Text("Индикатор скорости: ${if (showSpeed) "включено" else "выключено"}") }
+            }
+        }
+        Card(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            border = BorderStroke(1.dp, Color(0xFFCCD6E2)),
+            colors = CardDefaults.cardColors(containerColor = HamburgTransitPalette.White)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Анализ вождения (Eco-Drive)", style = MaterialTheme.typography.titleMedium, color = HamburgTransitPalette.HarborNavy)
                 var drivingAnalysis by remember { mutableStateOf(AppPreferences.drivingAnalysisEnabled(context)) }
                 TextButton(onClick = {

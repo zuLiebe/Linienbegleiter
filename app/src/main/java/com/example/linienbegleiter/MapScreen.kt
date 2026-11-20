@@ -52,6 +52,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -210,7 +211,8 @@ fun MapScreen(
     directionDrawingEnabled: Boolean = false,
     directionPoints: List<MapRoutePoint> = emptyList(),
     onDirectionDrawn: (List<MapRoutePoint>) -> Unit = {},
-    onFollowRoute: ((String, RouteFollowSource) -> Unit)? = null
+    onFollowRoute: ((String, RouteFollowSource) -> Unit)? = null,
+    currentSpeedMetersPerSecond: Float? = null
 ) {
     val context = LocalContext.current
     val database = remember(context) { RecordingDatabase.getInstance(context) }
@@ -296,6 +298,7 @@ fun MapScreen(
     var previewRouteSectionSource by remember { mutableStateOf<GeoJsonSource?>(null) }
     var currentPositionSource by remember { mutableStateOf<GeoJsonSource?>(null) }
     var hasCenteredOnCurrentPosition by remember { mutableStateOf(false) }
+    var is3dPerspective by remember { mutableStateOf(true) }
     var smoothedCameraBearing by remember { mutableStateOf(0f) }
     var hasStableCameraBearing by remember { mutableStateOf(false) }
     var selectedMapStop by remember { mutableStateOf<MapRouteStop?>(null) }
@@ -518,9 +521,7 @@ fun MapScreen(
         routePoints,
         routeStops,
         originalComparisonPoints,
-        passedRoutePoints,
         directionPoints,
-        displayedPosition,
         selectedRoutePointSequence,
         showRoutePointMarkers
     ) {
@@ -534,7 +535,6 @@ fun MapScreen(
             originalComparisonSource?.setGeoJson(
                 buildRouteLineGeoJson(originalComparisonPoints)
             )
-            passedRouteSource?.setGeoJson(buildRouteLineGeoJson(passedRoutePoints))
             directionSource?.setGeoJson(buildRouteLineGeoJson(directionPoints))
             routePointsSource?.setGeoJson(
                 if (showRoutePointMarkers) buildRoutePointsGeoJson(routePoints)
@@ -546,6 +546,12 @@ fun MapScreen(
         }
     }
 
+    LaunchedEffect(styleLoaded, passedRoutePoints) {
+        if (styleLoaded) {
+            passedRouteSource?.setGeoJson(buildRouteLineGeoJson(passedRoutePoints))
+        }
+    }
+
     val isMoving = (displayedPosition?.speedMetersPerSecond ?: 0f) > 0.8f
     val currentBearing = if (isMoving && displayedPosition?.bearingDegrees != null && displayedPosition.bearingDegrees > 0f) {
         displayedPosition.bearingDegrees
@@ -553,9 +559,73 @@ fun MapScreen(
         deviceCompassAzimuth
     }
 
+    var animLat by remember { mutableDoubleStateOf(0.0) }
+    var animLng by remember { mutableDoubleStateOf(0.0) }
+    var animBearing by remember { mutableFloatStateOf(0f) }
+    var hasAnimPosition by remember { mutableStateOf(false) }
+
     LaunchedEffect(styleLoaded, displayedPosition, currentBearing) {
-        if (styleLoaded) {
-            currentPositionSource?.setGeoJson(buildCurrentPositionGeoJson(displayedPosition, currentBearing))
+        if (!styleLoaded) return@LaunchedEffect
+        val target = displayedPosition ?: return@LaunchedEffect
+        val targetLat = target.latitude
+        val targetLng = target.longitude
+        val targetBearing = currentBearing
+
+        if (!hasAnimPosition) {
+            animLat = targetLat
+            animLng = targetLng
+            animBearing = targetBearing
+            hasAnimPosition = true
+            currentPositionSource?.setGeoJson(
+                buildCurrentPositionGeoJson(target, targetBearing)
+            )
+            return@LaunchedEffect
+        }
+
+        val startLat = animLat
+        val startLng = animLng
+        val startBearing = animBearing
+        val latDiff = targetLat - startLat
+        val lngDiff = targetLng - startLng
+        val distSq = latDiff * latDiff + lngDiff * lngDiff
+
+        if (distSq > 0.01) {
+            animLat = targetLat
+            animLng = targetLng
+            animBearing = targetBearing
+            currentPositionSource?.setGeoJson(
+                buildCurrentPositionGeoJson(target, targetBearing)
+            )
+        } else {
+            val durationMillis = 300L
+            val startTime = System.currentTimeMillis()
+            while (true) {
+                val elapsed = System.currentTimeMillis() - startTime
+                val fraction = (elapsed.toFloat() / durationMillis).coerceIn(0f, 1f)
+                val curLat = startLat + (targetLat - startLat) * fraction.toDouble()
+                val curLng = startLng + (targetLng - startLng) * fraction.toDouble()
+
+                var bearingDiff = (targetBearing - startBearing) % 360f
+                if (bearingDiff > 180f) bearingDiff -= 360f
+                if (bearingDiff < -180f) bearingDiff += 360f
+                val curBearing = (startBearing + bearingDiff * fraction) % 360f
+
+                animLat = curLat
+                animLng = curLng
+                animBearing = curBearing
+
+                val animatedPoint = target.copy(
+                    latitude = curLat,
+                    longitude = curLng,
+                    bearingDegrees = curBearing
+                )
+                currentPositionSource?.setGeoJson(
+                    buildCurrentPositionGeoJson(animatedPoint, curBearing)
+                )
+
+                if (fraction >= 1f) break
+                kotlinx.coroutines.delay(16L)
+            }
         }
     }
 
@@ -593,6 +663,13 @@ fun MapScreen(
         )
     }
 
+    val dynamicZoom = when {
+        currentSpeedMetersPerSecond == null || currentSpeedMetersPerSecond < 2.8f -> 17.5
+        currentSpeedMetersPerSecond < 8.3f -> 16.5
+        currentSpeedMetersPerSecond < 16.6f -> 15.5
+        else -> 14.5
+    }
+
     LaunchedEffect(
         styleLoaded,
         displayedPosition?.timestampEpochMillis,
@@ -621,9 +698,9 @@ fun MapScreen(
                 }
                 val camera = mapLibreMap?.cameraPosition
                 val zoom = if (!hasCenteredOnCurrentPosition || camera == null) {
-                    NAVIGATION_ZOOM
+                    dynamicZoom
                 } else {
-                    camera.zoom.coerceIn(MIN_NAVIGATION_ZOOM, MAX_NAVIGATION_ZOOM)
+                    (camera.zoom + (dynamicZoom - camera.zoom) * 0.15).coerceIn(MIN_NAVIGATION_ZOOM, MAX_NAVIGATION_ZOOM)
                 }
                 val bearing = if (hasStableCameraBearing) {
                     smoothedCameraBearing
@@ -634,7 +711,7 @@ fun MapScreen(
                     .target(target)
                     .zoom(zoom)
                     .bearing(bearing.toDouble())
-                    .tilt(camera?.tilt ?: 0.0)
+                    .tilt(if (is3dPerspective) 45.0 else 0.0)
                     .build()
                 mapLibreMap?.animateCamera(
                     CameraUpdateFactory.newCameraPosition(nextCamera),
@@ -642,7 +719,15 @@ fun MapScreen(
                 )
                 hasCenteredOnCurrentPosition = true
             } else if (!hasCenteredOnCurrentPosition && !hasUserMovedMap) {
-                mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(target, 15.5))
+                mapLibreMap?.animateCamera(
+                    CameraUpdateFactory.newCameraPosition(
+                        CameraPosition.Builder()
+                            .target(target)
+                            .zoom(15.5)
+                            .tilt(if (is3dPerspective) 45.0 else 0.0)
+                            .build()
+                    )
+                )
                 hasCenteredOnCurrentPosition = true
             }
         }
@@ -665,9 +750,12 @@ fun MapScreen(
     LaunchedEffect(styleLoaded, displayedPosition) {
         if (styleLoaded && displayedPosition != null && !hasCenteredOnCurrentPosition && !hasUserMovedMap) {
             mapLibreMap?.animateCamera(
-                CameraUpdateFactory.newLatLngZoom(
-                    LatLng(displayedPosition.latitude, displayedPosition.longitude),
-                    15.5
+                CameraUpdateFactory.newCameraPosition(
+                    CameraPosition.Builder()
+                        .target(LatLng(displayedPosition.latitude, displayedPosition.longitude))
+                        .zoom(15.5)
+                        .tilt(if (is3dPerspective) 45.0 else 0.0)
+                        .build()
                 )
             )
             hasCenteredOnCurrentPosition = true
@@ -685,8 +773,9 @@ fun MapScreen(
             }
             val camera = CameraPosition.Builder()
                 .target(LatLng(position.latitude, position.longitude))
-                .zoom(NAVIGATION_ZOOM)
+                .zoom(dynamicZoom)
                 .bearing(cameraBearing)
+                .tilt(if (is3dPerspective) 45.0 else 0.0)
                 .build()
             mapLibreMap?.animateCamera(
                 CameraUpdateFactory.newCameraPosition(camera),
@@ -759,6 +848,11 @@ fun MapScreen(
                             map.uiSettings.isScrollGesturesEnabled = true
                             map.uiSettings.isZoomGesturesEnabled = true
                             map.uiSettings.isDoubleTapGesturesEnabled = true
+                            map.uiSettings.isCompassEnabled = AppPreferences.showCompass(context)
+                            map.uiSettings.compassGravity = android.view.Gravity.TOP or android.view.Gravity.END
+                            map.uiSettings.setCompassMargins(16, 170, 16, 16)
+                            map.uiSettings.isAttributionEnabled = false
+                            map.setPadding(0, 40, 0, 720)
                             map.addOnCameraMoveListener {
                                 updateProjectedStopMarkers(map)
                             }
@@ -1124,7 +1218,7 @@ fun MapScreen(
                         }
                     }
 
-                    // Top-right: Red-and-white bus icon for "Поехали" + Zoom buttons
+                    // Top-right: Red-and-white bus icon for "Поехали"
                     Row(
                         modifier = Modifier.align(Alignment.TopEnd),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1146,32 +1240,70 @@ fun MapScreen(
                                 Text("Поехали", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
                             }
                         }
+                    }
+                }
+            }
 
-                        // Zoom out
-                        Surface(
-                            onClick = { mapLibreMap?.animateCamera(CameraUpdateFactory.zoomOut()) },
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                            tonalElevation = 6.dp,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text("−", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
+            val showZoom = AppPreferences.showZoomControls(context)
+            val show3d = AppPreferences.show3dControls(context)
 
-                        // Zoom in
+            if (showZoom || show3d) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 130.dp, end = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (showZoom) {
                         Surface(
                             onClick = { mapLibreMap?.animateCamera(CameraUpdateFactory.zoomIn()) },
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                             contentColor = MaterialTheme.colorScheme.onSurface,
                             tonalElevation = 6.dp,
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(38.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text("+", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Surface(
+                            onClick = { mapLibreMap?.animateCamera(CameraUpdateFactory.zoomOut()) },
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                            tonalElevation = 6.dp,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("−", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    if (show3d) {
+                        Surface(
+                            onClick = {
+                                is3dPerspective = !is3dPerspective
+                                val currentCam = mapLibreMap?.cameraPosition
+                                if (currentCam != null) {
+                                    val newTilt = if (is3dPerspective) 45.0 else 0.0
+                                    val updated = CameraPosition.Builder(currentCam)
+                                        .tilt(newTilt)
+                                        .build()
+                                    mapLibreMap?.animateCamera(CameraUpdateFactory.newCameraPosition(updated), 400)
+                                }
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                            tonalElevation = 6.dp,
+                            modifier = Modifier.size(width = 38.dp, height = 38.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(if (is3dPerspective) "3D" else "2D", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -1430,8 +1562,8 @@ private const val PREVIEW_ROUTE_SECTION_LAYER_ID = "preview-route-section-layer"
 private const val CURRENT_POSITION_SOURCE_ID = "recorded-position-source"
 private const val CURRENT_POSITION_LAYER_ID = "recorded-position-circle"
 private const val NAVIGATION_ZOOM = 15.0
-private const val MIN_NAVIGATION_ZOOM = 13.5
-private const val MAX_NAVIGATION_ZOOM = 16.5
+private const val MIN_NAVIGATION_ZOOM = 13.0
+private const val MAX_NAVIGATION_ZOOM = 18.0
 private const val CAMERA_FOLLOW_ANIMATION_MILLIS = 700
 private const val MIN_CAMERA_HEADING_SPEED_METERS_PER_SECOND = 1.5f
 private const val MAX_CAMERA_HEADING_ACCURACY_METERS = 35f
