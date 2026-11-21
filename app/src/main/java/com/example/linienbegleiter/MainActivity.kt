@@ -221,6 +221,9 @@ private fun LinienbegleiterApp(
     if (showFirstRunLanguageDialog) {
         AlertDialog(
             onDismissRequest = {},
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 12.dp,
+            shape = RoundedCornerShape(28.dp),
             title = { Text("Choose Language / Выберите язык") },
             text = {
                 Column(
@@ -555,6 +558,9 @@ private fun SettingsScreen(
                 if (showLangDialog) {
                     AlertDialog(
                         onDismissRequest = { showLangDialog = false },
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 12.dp,
+                        shape = RoundedCornerShape(28.dp),
                         title = { Text("Выберите язык / Choose Language") },
                         text = {
                             Column(
