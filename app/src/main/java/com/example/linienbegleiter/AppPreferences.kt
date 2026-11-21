@@ -106,4 +106,36 @@ object AppPreferences {
 
     fun showSpeedBadge(context: Context): Boolean = preferences(context).getBoolean(KEY_SHOW_SPEED_BADGE, true)
     fun setShowSpeedBadge(context: Context, enabled: Boolean) = preferences(context).edit().putBoolean(KEY_SHOW_SPEED_BADGE, enabled).apply()
+
+    private const val KEY_APP_LANGUAGE = "app_language"
+    private const val KEY_HAS_SELECTED_LANGUAGE = "has_selected_language"
+
+    val SUPPORTED_LANGUAGES = listOf(
+        Triple("en", "English", "English"),
+        Triple("de", "Deutsch", "German"),
+        Triple("ru", "Русский", "Russian"),
+        Triple("uk", "Українська", "Ukrainian"),
+        Triple("vi", "Tiếng Việt", "Vietnamese"),
+        Triple("zh", "中文", "Chinese"),
+        Triple("ar", "العربية", "Arabic"),
+        Triple("fa", "فارسی", "Persian"),
+        Triple("sw", "Kiswahili", "Swahili"),
+        Triple("am", "አማርኛ", "Amharic"),
+        Triple("af", "Afrikaans", "Afrikaans")
+    )
+
+    fun appLanguage(context: Context): String =
+        preferences(context).getString(KEY_APP_LANGUAGE, "en") ?: "en"
+
+    fun setAppLanguage(context: Context, languageCode: String) {
+        preferences(context).edit()
+            .putString(KEY_APP_LANGUAGE, languageCode)
+            .putBoolean(KEY_HAS_SELECTED_LANGUAGE, true)
+            .apply()
+        val appLocale = androidx.core.os.LocaleListCompat.forLanguageTags(languageCode)
+        androidx.appcompat.app.AppCompatDelegate.setApplicationLocales(appLocale)
+    }
+
+    fun hasSelectedLanguage(context: Context): Boolean =
+        preferences(context).getBoolean(KEY_HAS_SELECTED_LANGUAGE, false)
 }

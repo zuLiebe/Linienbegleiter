@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,6 +32,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -212,6 +214,46 @@ private fun LinienbegleiterApp(
     var editorRouteId by remember { mutableStateOf<String?>(null) }
     var editorRouteSource by remember {
         mutableStateOf(RouteFollowSource.ORIGINAL_RECORDING)
+    }
+
+    var showFirstRunLanguageDialog by remember { mutableStateOf(!AppPreferences.hasSelectedLanguage(context)) }
+
+    if (showFirstRunLanguageDialog) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Choose Language / Выберите язык") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("Please select your preferred language:", style = MaterialTheme.typography.bodyMedium)
+                    AppPreferences.SUPPORTED_LANGUAGES.forEach { (code, nativeName, englishName) ->
+                        OutlinedButton(
+                            onClick = {
+                                AppPreferences.setAppLanguage(context, code)
+                                showFirstRunLanguageDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(nativeName, fontWeight = FontWeight.Bold)
+                                Text(englishName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {}
+        )
     }
 
     BackHandler(
@@ -492,6 +534,62 @@ private fun SettingsScreen(
                     Text("Режим: ${when (themeMode) { AppThemeMode.AUTO -> "Авто (датчик)"; AppThemeMode.DAY -> "День"; AppThemeMode.NIGHT -> "Ночь" }} · изменить")
                 }
                 TextButton(onClick = { onKeepScreenOnChanged(!keepScreenOn) }) { Text("Не выключать экран: ${if (keepScreenOn) "включено" else "выключено"}") }
+            }
+        }
+        Card(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            border = BorderStroke(1.dp, Color(0xFFCCD6E2)),
+            colors = CardDefaults.cardColors(containerColor = HamburgTransitPalette.White)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                var showLangDialog by remember { mutableStateOf(false) }
+                val currentLang = AppPreferences.appLanguage(context)
+                val langName = AppPreferences.SUPPORTED_LANGUAGES.firstOrNull { it.first == currentLang }?.second ?: "English"
+
+                Text("Язык / Language", style = MaterialTheme.typography.titleMedium, color = HamburgTransitPalette.HarborNavy)
+                TextButton(onClick = { showLangDialog = true }) {
+                    Text("Текущий язык: $langName · Изменить")
+                }
+
+                if (showLangDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showLangDialog = false },
+                        title = { Text("Выберите язык / Choose Language") },
+                        text = {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 380.dp)
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                AppPreferences.SUPPORTED_LANGUAGES.forEach { (code, nativeName, englishName) ->
+                                    OutlinedButton(
+                                        onClick = {
+                                            AppPreferences.setAppLanguage(context, code)
+                                            showLangDialog = false
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(nativeName, fontWeight = FontWeight.Bold)
+                                            Text(englishName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showLangDialog = false }) { Text("Закрыть") }
+                        }
+                    )
+                }
             }
         }
         Card(
