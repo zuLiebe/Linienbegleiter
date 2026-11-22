@@ -689,7 +689,6 @@ fun MapScreen(
     ) {
         val position = displayedPosition
         if (styleLoaded && position != null) {
-            val target = LatLng(position.latitude, position.longitude)
             if (followCurrentPosition && !hasUserMovedMap) {
                 val speed = position.speedMetersPerSecond
                 val accuracy = position.accuracyMeters
@@ -712,14 +711,21 @@ fun MapScreen(
                     (camera.zoom + (dynamicZoom - camera.zoom) * 0.15).coerceIn(MIN_NAVIGATION_ZOOM, MAX_NAVIGATION_ZOOM)
                 }
                 val bearing = if (hasStableCameraBearing) {
-                    smoothedCameraBearing
+                    smoothedCameraBearing.toDouble()
                 } else {
                     camera?.bearing ?: 0.0
                 }
+                val anchorTarget = calculateCameraAnchorTarget(
+                    busLat = position.latitude,
+                    busLng = position.longitude,
+                    bearingDegrees = bearing,
+                    zoom = zoom,
+                    viewportHeightPx = mapViewportHeightPx
+                )
                 val nextCamera = CameraPosition.Builder()
-                    .target(target)
+                    .target(anchorTarget)
                     .zoom(zoom)
-                    .bearing(bearing.toDouble())
+                    .bearing(bearing)
                     .tilt(if (is3dPerspective) 45.0 else 0.0)
                     .build()
                 mapLibreMap?.animateCamera(
@@ -728,10 +734,17 @@ fun MapScreen(
                 )
                 hasCenteredOnCurrentPosition = true
             } else if (!hasCenteredOnCurrentPosition && !hasUserMovedMap) {
+                val anchorTarget = calculateCameraAnchorTarget(
+                    busLat = position.latitude,
+                    busLng = position.longitude,
+                    bearingDegrees = 0.0,
+                    zoom = 15.5,
+                    viewportHeightPx = mapViewportHeightPx
+                )
                 mapLibreMap?.animateCamera(
                     CameraUpdateFactory.newCameraPosition(
                         CameraPosition.Builder()
-                            .target(target)
+                            .target(anchorTarget)
                             .zoom(15.5)
                             .tilt(if (is3dPerspective) 45.0 else 0.0)
                             .build()
@@ -743,7 +756,7 @@ fun MapScreen(
     }
 
     LaunchedEffect(styleLoaded, routePoints) {
-        if (styleLoaded && routePoints.size >= 2 && !hasCenteredOnCurrentPosition) {
+        if (styleLoaded && routePoints.size >= 2 && !hasCenteredOnCurrentPosition && !followCurrentPosition) {
             val latLngs = routePoints.map { LatLng(it.latitude, it.longitude) }
             runCatching {
                 val bounds = LatLngBounds.fromLatLngs(latLngs)
@@ -757,11 +770,18 @@ fun MapScreen(
     }
 
     LaunchedEffect(styleLoaded, displayedPosition) {
-        if (styleLoaded && displayedPosition != null && !hasCenteredOnCurrentPosition && !hasUserMovedMap) {
+        if (styleLoaded && displayedPosition != null && !hasCenteredOnCurrentPosition && !hasUserMovedMap && !followCurrentPosition) {
+            val anchorTarget = calculateCameraAnchorTarget(
+                busLat = displayedPosition.latitude,
+                busLng = displayedPosition.longitude,
+                bearingDegrees = 0.0,
+                zoom = 15.5,
+                viewportHeightPx = mapViewportHeightPx
+            )
             mapLibreMap?.animateCamera(
                 CameraUpdateFactory.newCameraPosition(
                     CameraPosition.Builder()
-                        .target(LatLng(displayedPosition.latitude, displayedPosition.longitude))
+                        .target(anchorTarget)
                         .zoom(15.5)
                         .tilt(if (is3dPerspective) 45.0 else 0.0)
                         .build()
@@ -780,8 +800,15 @@ fun MapScreen(
             } else {
                 mapLibreMap?.cameraPosition?.bearing ?: 0.0
             }
+            val anchorTarget = calculateCameraAnchorTarget(
+                busLat = position.latitude,
+                busLng = position.longitude,
+                bearingDegrees = cameraBearing,
+                zoom = dynamicZoom,
+                viewportHeightPx = mapViewportHeightPx
+            )
             val camera = CameraPosition.Builder()
-                .target(LatLng(position.latitude, position.longitude))
+                .target(anchorTarget)
                 .zoom(dynamicZoom)
                 .bearing(cameraBearing)
                 .tilt(if (is3dPerspective) 45.0 else 0.0)
@@ -797,10 +824,20 @@ fun MapScreen(
     LaunchedEffect(styleLoaded, userLocationRecenterToken) {
         val position = displayedPosition
         if (styleLoaded && userLocationRecenterToken > 0 && position != null) {
+            val anchorTarget = calculateCameraAnchorTarget(
+                busLat = position.latitude,
+                busLng = position.longitude,
+                bearingDegrees = 0.0,
+                zoom = 15.5,
+                viewportHeightPx = mapViewportHeightPx
+            )
             mapLibreMap?.animateCamera(
-                CameraUpdateFactory.newLatLngZoom(
-                    LatLng(position.latitude, position.longitude),
-                    15.5
+                CameraUpdateFactory.newCameraPosition(
+                    CameraPosition.Builder()
+                        .target(anchorTarget)
+                        .zoom(15.5)
+                        .tilt(if (is3dPerspective) 45.0 else 0.0)
+                        .build()
                 )
             )
             hasCenteredOnCurrentPosition = true
@@ -1601,6 +1638,27 @@ private const val MAP_CAMERA_PREFERENCES = "map_camera_position"
 private const val MAP_CAMERA_LATITUDE = "latitude_bits"
 private const val MAP_CAMERA_LONGITUDE = "longitude_bits"
 private const val MAP_CAMERA_ZOOM = "zoom"
+
+private fun calculateCameraAnchorTarget(
+    busLat: Double,
+    busLng: Double,
+    bearingDegrees: Double,
+    zoom: Double,
+    viewportHeightPx: Int
+): LatLng {
+    val h = if (viewportHeightPx > 0) viewportHeightPx.toDouble() else 1920.0
+    val deltaYPixels = 0.27 * h
+
+    val radLat = Math.toRadians(busLat)
+    val metersPerPixel = (156543.03392 * kotlin.math.cos(radLat)) / Math.pow(2.0, zoom)
+    val offsetMeters = deltaYPixels * metersPerPixel
+
+    val radBearing = Math.toRadians(bearingDegrees)
+    val dLat = (offsetMeters * kotlin.math.cos(radBearing)) / 111320.0
+    val dLng = (offsetMeters * kotlin.math.sin(radBearing)) / (111320.0 * kotlin.math.cos(radLat))
+
+    return LatLng(busLat + dLat, busLng + dLng)
+}
 private const val MAX_RENDERED_SPEED_METERS_PER_SECOND = 45.0
 
 private fun normalizeBearing(bearing: Float): Float =
