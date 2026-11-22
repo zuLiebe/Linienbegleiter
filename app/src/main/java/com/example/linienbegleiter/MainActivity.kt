@@ -608,6 +608,11 @@ private fun SettingsScreen(
                 Text("Карта", style = MaterialTheme.typography.titleMedium, color = HamburgTransitPalette.HarborNavy)
                 TextButton(onClick = { autoFollow = !autoFollow; AppPreferences.setAutoFollow(context, autoFollow) }) { Text("Автоследование: ${if (autoFollow) "включено" else "выключено"}") }
                 TextButton(onClick = { showLocation = !showLocation; AppPreferences.setShowLocation(context, showLocation) }) { Text("GPS-маркер: ${if (showLocation) "показывать" else "скрывать"}") }
+                var streetAnnouncements by remember { mutableStateOf(AppPreferences.streetAnnouncementsEnabled(context)) }
+                TextButton(onClick = {
+                    streetAnnouncements = !streetAnnouncements
+                    AppPreferences.setStreetAnnouncementsEnabled(context, streetAnnouncements)
+                }) { Text("Озвучивание улиц (подтверждение 60с): ${if (streetAnnouncements) "включено" else "выключено"}") }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { preferredZoom = (preferredZoom - 1f).coerceAtLeast(10f); AppPreferences.setPreferredZoom(context, preferredZoom) }) { Text("−") }
                     Text("Масштаб ${preferredZoom.toInt()}")

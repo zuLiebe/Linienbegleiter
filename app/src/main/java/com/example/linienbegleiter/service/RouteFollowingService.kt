@@ -40,6 +40,8 @@ class RouteFollowingService : Service() {
     private lateinit var manager: RouteFollowingManager
     private var isForeground = false
     private val followingBinder by lazy { FollowingBinder() }
+    private var textToSpeech: android.speech.tts.TextToSpeech? = null
+    private var lastSpokenEventTimestamp = 0L
 
     inner class FollowingBinder : Binder() {
         val followingState: StateFlow<RouteFollowingState>
@@ -49,16 +51,58 @@ class RouteFollowingService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        initTts()
         val database = RecordingDatabase.getInstance(this)
+        val geocoder = android.location.Geocoder(this, java.util.Locale.getDefault())
+        val streetResolver: suspend (Double, Double) -> String? = { lat, lng ->
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                runCatching {
+                    @Suppress("DEPRECATION")
+                    val addresses = geocoder.getFromLocation(lat, lng, 1)
+                    addresses?.firstOrNull()?.thoroughfare
+                }.getOrNull()
+            }
+        }
+
         manager = RouteFollowingManager(
             recordingRepository = RoomRecordingRepository(database),
             editableRouteRepository = RoomEditableRouteRepository(database),
             locationProvider = AndroidLocationProvider(this),
             scope = serviceScope,
-            offRouteThresholdProvider = { com.example.linienbegleiter.AppPreferences.offRouteThresholdMeters(this@RouteFollowingService) }
+            offRouteThresholdProvider = { com.example.linienbegleiter.AppPreferences.offRouteThresholdMeters(this@RouteFollowingService) },
+            streetResolver = streetResolver
         )
         serviceScope.launch {
-            manager.state.collect(::updateNotification)
+            manager.state.collect { state ->
+                updateNotification(state)
+                handleStreetAnnouncements(state)
+            }
+        }
+    }
+
+    private fun initTts() {
+        runCatching {
+            textToSpeech = android.speech.tts.TextToSpeech(this) { status ->
+                if (status == android.speech.tts.TextToSpeech.SUCCESS) {
+                    textToSpeech?.language = java.util.Locale.getDefault()
+                }
+            }
+        }
+    }
+
+    private fun handleStreetAnnouncements(state: RouteFollowingState) {
+        val event = state.latestStreetAnnouncement ?: return
+        if (event.timestampEpochMillis <= lastSpokenEventTimestamp) return
+        lastSpokenEventTimestamp = event.timestampEpochMillis
+
+        if (com.example.linienbegleiter.AppPreferences.streetAnnouncementsEnabled(this)) {
+            val announcementText = "Вы находитесь на улице " + event.streetName
+            textToSpeech?.speak(
+                announcementText,
+                android.speech.tts.TextToSpeech.QUEUE_FLUSH,
+                null,
+                "street_announcement"
+            )
         }
     }
 
@@ -106,6 +150,9 @@ class RouteFollowingService : Service() {
 
     override fun onDestroy() {
         manager.stopFollowing()
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
+        textToSpeech = null
         serviceScope.cancel()
         super.onDestroy()
     }

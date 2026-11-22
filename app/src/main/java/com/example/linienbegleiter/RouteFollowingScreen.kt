@@ -591,6 +591,48 @@ fun RouteFollowingScreen(
                 }
             }
 
+            val announcement = followingState.latestStreetAnnouncement
+            val showAnnouncement = announcement != null &&
+                (System.currentTimeMillis() - announcement.timestampEpochMillis) in 0L..10_000L
+            if (followsThisRoute && showAnnouncement && !followingState.isOffRoute) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(top = 52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFF1E3A8A),
+                        contentColor = Color.White
+                    ),
+                    border = BorderStroke(1.5.dp, Color(0xFF60A5FA))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("🛣️", fontSize = 20.sp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Вы находитесь на улице",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF93C5FD)
+                            )
+                            Text(
+                                announcement!!.streetName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+
             if (followsThisRoute && followingState.isOffRoute) {
                 Card(
                     modifier = Modifier

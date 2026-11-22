@@ -28,7 +28,8 @@ class RouteFollowingManager(
     private val locationProvider: LocationProvider,
     private val scope: CoroutineScope,
     private val locationConfig: LocationRequestConfig = LocationRequestConfig(),
-    private val offRouteThresholdProvider: () -> Float = { AppPreferences.DEFAULT_OFF_ROUTE_THRESHOLD_METERS }
+    private val offRouteThresholdProvider: () -> Float = { AppPreferences.DEFAULT_OFF_ROUTE_THRESHOLD_METERS },
+    private val streetResolver: (suspend (Double, Double) -> String?)? = null
 ) {
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(RouteFollowingState())
@@ -38,6 +39,7 @@ class RouteFollowingManager(
     private var consecutiveOffRouteCount = 0
     private var consecutiveOnRouteCount = 0
     private var isCurrentlyOffRoute = false
+    private val streetTracker = StreetTracker(confirmationDurationMillis = 60_000L)
 
     val state: StateFlow<RouteFollowingState> = mutableState.asStateFlow()
 
@@ -64,6 +66,7 @@ class RouteFollowingManager(
             consecutiveOffRouteCount = 0
             consecutiveOnRouteCount = 0
             isCurrentlyOffRoute = false
+            streetTracker.reset()
             mutableState.value = RouteFollowingState(
                 routeId = loadedRoute.id,
                 source = source,
@@ -97,6 +100,7 @@ class RouteFollowingManager(
         consecutiveOffRouteCount = 0
         consecutiveOnRouteCount = 0
         isCurrentlyOffRoute = false
+        streetTracker.reset()
         mutableState.value = RouteFollowingState()
     }
 
@@ -107,6 +111,7 @@ class RouteFollowingManager(
         consecutiveOffRouteCount = 0
         consecutiveOnRouteCount = 0
         isCurrentlyOffRoute = false
+        streetTracker.reset()
         mutableState.value = mutableState.value.copy(
             isActive = false,
             errorMessage = message
@@ -260,12 +265,20 @@ class RouteFollowingManager(
                     }
                 }
 
+                val resolvedStreet = streetResolver?.invoke(sample.latitude, sample.longitude)
+                val trackerResult = streetTracker.onLocationUpdate(
+                    rawStreetName = resolvedStreet,
+                    timestampEpochMillis = sample.timestampEpochMillis
+                )
+
                 mutableState.value = oldState.copy(
                     locationStatus = LocationProviderStatus.ProviderAvailable(sample.sourceProvider),
                     locationSample = sample,
                     progress = snapshot,
                     isOffRoute = isCurrentlyOffRoute,
                     offRouteDistanceMeters = deviation,
+                    currentConfirmedStreet = trackerResult.confirmedStreet,
+                    latestStreetAnnouncement = trackerResult.newAnnouncement ?: oldState.latestStreetAnnouncement,
                     isArrivedAtDestination = isArrived || oldState.isArrivedAtDestination,
                     suggestedNextRoutes = suggestions
                 )
@@ -578,4 +591,65 @@ internal object RouteProgressCalculator {
     private const val LOOKAHEAD_WINDOW_METERS = 250.0
     private const val STOP_PASSING_TOLERANCE_METERS = 20.0
     private const val MIN_SEGMENT_LENGTH_METERS = 0.5
+}
+
+internal class StreetTracker(
+    private val confirmationDurationMillis: Long = 60_000L
+) {
+    private var currentConfirmedStreet: String? = null
+    private var pendingStreet: String? = null
+    private var pendingStartTime: Long = 0L
+    private var lastAnnouncedStreet: String? = null
+
+    fun reset() {
+        currentConfirmedStreet = null
+        pendingStreet = null
+        pendingStartTime = 0L
+        lastAnnouncedStreet = null
+    }
+
+    data class Result(
+        val confirmedStreet: String?,
+        val newAnnouncement: StreetAnnouncementEvent?
+    )
+
+    fun onLocationUpdate(
+        rawStreetName: String?,
+        timestampEpochMillis: Long
+    ): Result {
+        val cleanStreet = rawStreetName?.trim()?.takeIf { it.isNotBlank() }
+            ?: return Result(currentConfirmedStreet, null)
+
+        if (cleanStreet.equals(currentConfirmedStreet, ignoreCase = true)) {
+            pendingStreet = null
+            pendingStartTime = 0L
+            return Result(currentConfirmedStreet, null)
+        }
+
+        if (!cleanStreet.equals(pendingStreet, ignoreCase = true)) {
+            pendingStreet = cleanStreet
+            pendingStartTime = timestampEpochMillis
+            return Result(currentConfirmedStreet, null)
+        }
+
+        val elapsed = timestampEpochMillis - pendingStartTime
+        if (elapsed >= confirmationDurationMillis) {
+            val newlyConfirmed = cleanStreet
+            currentConfirmedStreet = newlyConfirmed
+            pendingStreet = null
+            pendingStartTime = 0L
+
+            var event: StreetAnnouncementEvent? = null
+            if (!newlyConfirmed.equals(lastAnnouncedStreet, ignoreCase = true)) {
+                lastAnnouncedStreet = newlyConfirmed
+                event = StreetAnnouncementEvent(
+                    streetName = newlyConfirmed,
+                    timestampEpochMillis = timestampEpochMillis
+                )
+            }
+            return Result(currentConfirmedStreet, event)
+        }
+
+        return Result(currentConfirmedStreet, null)
+    }
 }

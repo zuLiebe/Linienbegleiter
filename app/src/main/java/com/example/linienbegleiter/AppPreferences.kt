@@ -138,4 +138,13 @@ object AppPreferences {
 
     fun hasSelectedLanguage(context: Context): Boolean =
         preferences(context).getBoolean(KEY_HAS_SELECTED_LANGUAGE, false)
+
+    private const val KEY_STREET_ANNOUNCEMENTS = "street_announcements_enabled"
+
+    fun streetAnnouncementsEnabled(context: Context): Boolean =
+        preferences(context).getBoolean(KEY_STREET_ANNOUNCEMENTS, true)
+
+    fun setStreetAnnouncementsEnabled(context: Context, enabled: Boolean) {
+        preferences(context).edit().putBoolean(KEY_STREET_ANNOUNCEMENTS, enabled).apply()
+    }
 }

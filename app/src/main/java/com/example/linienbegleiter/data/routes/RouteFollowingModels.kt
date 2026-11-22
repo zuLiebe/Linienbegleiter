@@ -44,6 +44,11 @@ data class NextRouteSuggestion(
     val isReturnTrip: Boolean = false
 )
 
+data class StreetAnnouncementEvent(
+    val streetName: String,
+    val timestampEpochMillis: Long
+)
+
 data class RouteFollowingState(
     val routeId: String? = null,
     val source: RouteFollowSource? = null,
@@ -57,6 +62,8 @@ data class RouteFollowingState(
     val progress: RouteProgressSnapshot? = null,
     val isOffRoute: Boolean = false,
     val offRouteDistanceMeters: Double? = null,
+    val currentConfirmedStreet: String? = null,
+    val latestStreetAnnouncement: StreetAnnouncementEvent? = null,
     val errorMessage: String? = null,
     val isArrivedAtDestination: Boolean = false,
     val suggestedNextRoutes: List<NextRouteSuggestion> = emptyList()
