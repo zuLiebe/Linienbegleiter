@@ -69,6 +69,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalContext
@@ -299,6 +300,14 @@ fun MapScreen(
     var currentPositionSource by remember { mutableStateOf<GeoJsonSource?>(null) }
     var hasCenteredOnCurrentPosition by remember { mutableStateOf(false) }
     var is3dPerspective by remember { mutableStateOf(true) }
+    var mapViewportHeightPx by remember { mutableIntStateOf(0) }
+
+    fun updateMapCameraAnchor(map: MapLibreMap, heightPx: Int) {
+        if (heightPx <= 0) return
+        val topPaddingPx = (heightPx * 0.54f).roundToInt()
+        map.setPadding(0, topPaddingPx, 0, 0)
+    }
+
     var smoothedCameraBearing by remember { mutableStateOf(0f) }
     var hasStableCameraBearing by remember { mutableStateOf(false) }
     var selectedMapStop by remember { mutableStateOf<MapRouteStop?>(null) }
@@ -817,6 +826,17 @@ fun MapScreen(
                 .weight(1f)
         ) {
             AndroidView(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onGloballyPositioned { coordinates ->
+                        val h = coordinates.size.height
+                        if (h > 0 && h != mapViewportHeightPx) {
+                            mapViewportHeightPx = h
+                            mapLibreMap?.let { map ->
+                                updateMapCameraAnchor(map, h)
+                            }
+                        }
+                    },
                 factory = {
                     mapView.apply {
                         getMapAsync { map ->
@@ -852,7 +872,11 @@ fun MapScreen(
                             map.uiSettings.compassGravity = android.view.Gravity.TOP or android.view.Gravity.END
                             map.uiSettings.setCompassMargins(16, 170, 16, 16)
                             map.uiSettings.isAttributionEnabled = false
-                            map.setPadding(0, 40, 0, 720)
+                            if (mapViewportHeightPx > 0) {
+                                updateMapCameraAnchor(map, mapViewportHeightPx)
+                            } else {
+                                map.setPadding(0, 450, 0, 0)
+                            }
                             map.addOnCameraMoveListener {
                                 updateProjectedStopMarkers(map)
                             }
@@ -1161,8 +1185,7 @@ fun MapScreen(
                             }
                         }
                     }
-                },
-                modifier = Modifier.fillMaxSize()
+                }
             )
             projectedStopMarkers.forEach { marker ->
                 MapStopMarker(
