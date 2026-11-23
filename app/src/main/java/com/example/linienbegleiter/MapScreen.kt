@@ -835,6 +835,9 @@ fun MapScreen(
                         val h = coordinates.size.height
                         if (h > 0 && h != mapViewportHeightPx) {
                             mapViewportHeightPx = h
+                            mapLibreMap?.let { map ->
+                                updateMapCameraAnchor(map, h)
+                            }
                         }
                     },
                 factory = {
@@ -872,7 +875,7 @@ fun MapScreen(
                             map.uiSettings.compassGravity = android.view.Gravity.TOP or android.view.Gravity.END
                             map.uiSettings.setCompassMargins(16, 170, 16, 16)
                             map.uiSettings.isAttributionEnabled = false
-                            map.setPadding(0, 0, 0, 0)
+                            updateMapCameraAnchor(map, if (mapViewportHeightPx > 0) mapViewportHeightPx else 1920)
                             map.addOnCameraMoveListener {
                                 updateProjectedStopMarkers(map)
                             }
