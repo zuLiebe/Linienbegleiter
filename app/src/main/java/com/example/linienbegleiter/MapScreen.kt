@@ -301,13 +301,6 @@ fun MapScreen(
     var hasCenteredOnCurrentPosition by remember { mutableStateOf(false) }
     var is3dPerspective by remember { mutableStateOf(true) }
     var mapViewportHeightPx by remember { mutableIntStateOf(0) }
-
-    fun updateMapCameraAnchor(map: MapLibreMap, heightPx: Int) {
-        if (heightPx <= 0) return
-        val topPaddingPx = (heightPx * 0.54f).roundToInt()
-        map.setPadding(0, topPaddingPx, 0, 0)
-    }
-
     var smoothedCameraBearing by remember { mutableStateOf(0f) }
     var hasStableCameraBearing by remember { mutableStateOf(false) }
     var selectedMapStop by remember { mutableStateOf<MapRouteStop?>(null) }
@@ -689,7 +682,6 @@ fun MapScreen(
     ) {
         val position = displayedPosition
         if (styleLoaded && position != null) {
-            val target = LatLng(position.latitude, position.longitude)
             if (followCurrentPosition && !hasUserMovedMap) {
                 val speed = position.speedMetersPerSecond
                 val accuracy = position.accuracyMeters
@@ -712,15 +704,24 @@ fun MapScreen(
                     (camera.zoom + (dynamicZoom - camera.zoom) * 0.15).coerceIn(MIN_NAVIGATION_ZOOM, MAX_NAVIGATION_ZOOM)
                 }
                 val bearing = if (hasStableCameraBearing) {
-                    smoothedCameraBearing
+                    smoothedCameraBearing.toDouble()
                 } else {
                     camera?.bearing ?: 0.0
                 }
+                val tilt = if (is3dPerspective) 45.0 else 0.0
+                val anchorTarget = calculateCameraAnchorTarget(
+                    busLat = position.latitude,
+                    busLng = position.longitude,
+                    bearingDegrees = bearing,
+                    zoom = zoom,
+                    tiltDegrees = tilt,
+                    viewportHeightPx = mapViewportHeightPx
+                )
                 val nextCamera = CameraPosition.Builder()
-                    .target(target)
+                    .target(anchorTarget)
                     .zoom(zoom)
-                    .bearing(bearing.toDouble())
-                    .tilt(if (is3dPerspective) 45.0 else 0.0)
+                    .bearing(bearing)
+                    .tilt(tilt)
                     .build()
                 mapLibreMap?.animateCamera(
                     CameraUpdateFactory.newCameraPosition(nextCamera),
@@ -728,12 +729,21 @@ fun MapScreen(
                 )
                 hasCenteredOnCurrentPosition = true
             } else if (!hasCenteredOnCurrentPosition && !hasUserMovedMap) {
+                val tilt = if (is3dPerspective) 45.0 else 0.0
+                val anchorTarget = calculateCameraAnchorTarget(
+                    busLat = position.latitude,
+                    busLng = position.longitude,
+                    bearingDegrees = 0.0,
+                    zoom = 15.5,
+                    tiltDegrees = tilt,
+                    viewportHeightPx = mapViewportHeightPx
+                )
                 mapLibreMap?.animateCamera(
                     CameraUpdateFactory.newCameraPosition(
                         CameraPosition.Builder()
-                            .target(target)
+                            .target(anchorTarget)
                             .zoom(15.5)
-                            .tilt(if (is3dPerspective) 45.0 else 0.0)
+                            .tilt(tilt)
                             .build()
                     )
                 )
@@ -758,12 +768,21 @@ fun MapScreen(
 
     LaunchedEffect(styleLoaded, displayedPosition) {
         if (styleLoaded && displayedPosition != null && !hasCenteredOnCurrentPosition && !hasUserMovedMap && !followCurrentPosition) {
+            val tilt = if (is3dPerspective) 45.0 else 0.0
+            val anchorTarget = calculateCameraAnchorTarget(
+                busLat = displayedPosition.latitude,
+                busLng = displayedPosition.longitude,
+                bearingDegrees = 0.0,
+                zoom = 15.5,
+                tiltDegrees = tilt,
+                viewportHeightPx = mapViewportHeightPx
+            )
             mapLibreMap?.animateCamera(
                 CameraUpdateFactory.newCameraPosition(
                     CameraPosition.Builder()
-                        .target(LatLng(displayedPosition.latitude, displayedPosition.longitude))
+                        .target(anchorTarget)
                         .zoom(15.5)
-                        .tilt(if (is3dPerspective) 45.0 else 0.0)
+                        .tilt(tilt)
                         .build()
                 )
             )
@@ -780,11 +799,20 @@ fun MapScreen(
             } else {
                 mapLibreMap?.cameraPosition?.bearing ?: 0.0
             }
+            val tilt = if (is3dPerspective) 45.0 else 0.0
+            val anchorTarget = calculateCameraAnchorTarget(
+                busLat = position.latitude,
+                busLng = position.longitude,
+                bearingDegrees = cameraBearing,
+                zoom = dynamicZoom,
+                tiltDegrees = tilt,
+                viewportHeightPx = mapViewportHeightPx
+            )
             val camera = CameraPosition.Builder()
-                .target(LatLng(position.latitude, position.longitude))
+                .target(anchorTarget)
                 .zoom(dynamicZoom)
                 .bearing(cameraBearing)
-                .tilt(if (is3dPerspective) 45.0 else 0.0)
+                .tilt(tilt)
                 .build()
             mapLibreMap?.animateCamera(
                 CameraUpdateFactory.newCameraPosition(camera),
@@ -797,10 +825,22 @@ fun MapScreen(
     LaunchedEffect(styleLoaded, userLocationRecenterToken) {
         val position = displayedPosition
         if (styleLoaded && userLocationRecenterToken > 0 && position != null) {
+            val tilt = if (is3dPerspective) 45.0 else 0.0
+            val anchorTarget = calculateCameraAnchorTarget(
+                busLat = position.latitude,
+                busLng = position.longitude,
+                bearingDegrees = 0.0,
+                zoom = 15.5,
+                tiltDegrees = tilt,
+                viewportHeightPx = mapViewportHeightPx
+            )
             mapLibreMap?.animateCamera(
-                CameraUpdateFactory.newLatLngZoom(
-                    LatLng(position.latitude, position.longitude),
-                    15.5
+                CameraUpdateFactory.newCameraPosition(
+                    CameraPosition.Builder()
+                        .target(anchorTarget)
+                        .zoom(15.5)
+                        .tilt(tilt)
+                        .build()
                 )
             )
             hasCenteredOnCurrentPosition = true
@@ -832,9 +872,6 @@ fun MapScreen(
                         val h = coordinates.size.height
                         if (h > 0 && h != mapViewportHeightPx) {
                             mapViewportHeightPx = h
-                            mapLibreMap?.let { map ->
-                                updateMapCameraAnchor(map, h)
-                            }
                         }
                     },
                 factory = {
@@ -872,11 +909,7 @@ fun MapScreen(
                             map.uiSettings.compassGravity = android.view.Gravity.TOP or android.view.Gravity.END
                             map.uiSettings.setCompassMargins(16, 170, 16, 16)
                             map.uiSettings.isAttributionEnabled = false
-                            if (mapViewportHeightPx > 0) {
-                                updateMapCameraAnchor(map, mapViewportHeightPx)
-                            } else {
-                                map.setPadding(0, 450, 0, 0)
-                            }
+                            map.setPadding(0, 0, 0, 0)
                             map.addOnCameraMoveListener {
                                 updateProjectedStopMarkers(map)
                             }
@@ -1676,6 +1709,31 @@ private fun Context.saveMapCameraPosition(position: CameraPosition) {
         .putLong(MAP_CAMERA_LONGITUDE, java.lang.Double.doubleToRawLongBits(target.longitude))
         .putFloat(MAP_CAMERA_ZOOM, position.zoom.toFloat())
         .apply()
+}
+
+private fun calculateCameraAnchorTarget(
+    busLat: Double,
+    busLng: Double,
+    bearingDegrees: Double,
+    zoom: Double,
+    tiltDegrees: Double,
+    viewportHeightPx: Int
+): LatLng {
+    val h = if (viewportHeightPx > 0) viewportHeightPx.toDouble() else 1920.0
+    val deltaYPixels = 0.30 * h
+
+    val radLat = Math.toRadians(busLat)
+    val metersPerPixel = (156543.03392 * kotlin.math.cos(radLat)) / Math.pow(2.0, zoom)
+
+    val tiltRad = Math.toRadians(tiltDegrees.coerceIn(0.0, 60.0))
+    val tiltScale = if (tiltDegrees > 5.0) 1.0 / kotlin.math.cos(tiltRad) else 1.0
+    val offsetMeters = deltaYPixels * metersPerPixel * tiltScale
+
+    val radBearing = Math.toRadians(bearingDegrees)
+    val dLat = (offsetMeters * kotlin.math.cos(radBearing)) / 111320.0
+    val dLng = (offsetMeters * kotlin.math.sin(radBearing)) / (111320.0 * kotlin.math.cos(radLat))
+
+    return LatLng(busLat + dLat, busLng + dLng)
 }
 
 private fun hasMapLocationPermission(context: Context): Boolean =
