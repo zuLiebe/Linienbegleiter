@@ -691,6 +691,11 @@ fun MapScreen(
         if (styleLoaded && position != null) {
             val target = LatLng(position.latitude, position.longitude)
             if (followCurrentPosition && !hasUserMovedMap) {
+                mapLibreMap?.let { map ->
+                    if (mapViewportHeightPx > 0) {
+                        updateMapCameraAnchor(map, mapViewportHeightPx)
+                    }
+                }
                 val speed = position.speedMetersPerSecond
                 val accuracy = position.accuracyMeters
                 val measuredBearing = position.bearingDegrees
@@ -728,6 +733,11 @@ fun MapScreen(
                 )
                 hasCenteredOnCurrentPosition = true
             } else if (!hasCenteredOnCurrentPosition && !hasUserMovedMap) {
+                mapLibreMap?.let { map ->
+                    if (mapViewportHeightPx > 0) {
+                        updateMapCameraAnchor(map, mapViewportHeightPx)
+                    }
+                }
                 mapLibreMap?.animateCamera(
                     CameraUpdateFactory.newCameraPosition(
                         CameraPosition.Builder()
@@ -758,6 +768,11 @@ fun MapScreen(
 
     LaunchedEffect(styleLoaded, displayedPosition) {
         if (styleLoaded && displayedPosition != null && !hasCenteredOnCurrentPosition && !hasUserMovedMap && !followCurrentPosition) {
+            mapLibreMap?.let { map ->
+                if (mapViewportHeightPx > 0) {
+                    updateMapCameraAnchor(map, mapViewportHeightPx)
+                }
+            }
             mapLibreMap?.animateCamera(
                 CameraUpdateFactory.newCameraPosition(
                     CameraPosition.Builder()
@@ -775,6 +790,11 @@ fun MapScreen(
         val position = displayedPosition
         if (styleLoaded && recenterToken > 0 && position != null) {
             hasUserMovedMap = false
+            mapLibreMap?.let { map ->
+                if (mapViewportHeightPx > 0) {
+                    updateMapCameraAnchor(map, mapViewportHeightPx)
+                }
+            }
             val cameraBearing = if (hasStableCameraBearing) {
                 smoothedCameraBearing.toDouble()
             } else {
@@ -797,6 +817,11 @@ fun MapScreen(
     LaunchedEffect(styleLoaded, userLocationRecenterToken) {
         val position = displayedPosition
         if (styleLoaded && userLocationRecenterToken > 0 && position != null) {
+            mapLibreMap?.let { map ->
+                if (mapViewportHeightPx > 0) {
+                    updateMapCameraAnchor(map, mapViewportHeightPx)
+                }
+            }
             mapLibreMap?.animateCamera(
                 CameraUpdateFactory.newCameraPosition(
                     CameraPosition.Builder()
