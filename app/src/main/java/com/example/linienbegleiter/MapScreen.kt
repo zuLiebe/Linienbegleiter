@@ -1362,6 +1362,11 @@ fun MapScreen(
             if (showSpeed) {
                 val speedMps = currentSpeedMetersPerSecond ?: displayedPosition?.speedMetersPerSecond ?: 0f
                 val speedKmh = (speedMps * 3.6f).coerceAtLeast(0f).roundToInt()
+                val speedColor = when {
+                    speedKmh >= 49 -> Color(0xFFEF4444) // Red for >= 49 km/h
+                    speedKmh > 30 -> Color(0xFFF59E0B)  // Yellow/Amber for > 30 km/h
+                    else -> Color(0xFF10B981)           // Green for <= 30 km/h
+                }
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -1369,7 +1374,7 @@ fun MapScreen(
                     shape = RoundedCornerShape(16.dp),
                     color = Color(0xFF0F172A).copy(alpha = 0.92f),
                     contentColor = Color.White,
-                    border = BorderStroke(1.5.dp, if (speedKmh > 60) Color(0xFFF59E0B) else Color(0xFF38BDF8)),
+                    border = BorderStroke(1.5.dp, speedColor),
                     tonalElevation = 8.dp
                 ) {
                     Row(
@@ -1383,7 +1388,7 @@ fun MapScreen(
                                 text = "$speedKmh",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = if (speedKmh > 0) Color(0xFF38BDF8) else Color(0xFF94A3B8)
+                                color = speedColor
                             )
                             Text(
                                 text = "км/ч",
