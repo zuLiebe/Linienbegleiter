@@ -18,6 +18,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -1352,6 +1353,44 @@ fun MapScreen(
                             Box(contentAlignment = Alignment.Center) {
                                 Text(if (is3dPerspective) "3D" else "2D", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
+                        }
+                    }
+                }
+            }
+
+            val showSpeed = AppPreferences.showSpeedBadge(context)
+            if (showSpeed) {
+                val speedMps = currentSpeedMetersPerSecond ?: displayedPosition?.speedMetersPerSecond ?: 0f
+                val speedKmh = (speedMps * 3.6f).coerceAtLeast(0f).roundToInt()
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 14.dp, bottom = 28.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF0F172A).copy(alpha = 0.92f),
+                    contentColor = Color.White,
+                    border = BorderStroke(1.5.dp, if (speedKmh > 60) Color(0xFFF59E0B) else Color(0xFF38BDF8)),
+                    tonalElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("⏱️", fontSize = 16.sp)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "$speedKmh",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (speedKmh > 0) Color(0xFF38BDF8) else Color(0xFF94A3B8)
+                            )
+                            Text(
+                                text = "км/ч",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFCBD5E1)
+                            )
                         }
                     }
                 }
