@@ -570,23 +570,115 @@ fun RouteFollowingScreen(
                     )
                 }
 
+                Row(
+                    modifier = Modifier.align(Alignment.TopEnd),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (followsThisRoute && progress != null) {
+                        val devMeters = progress.distanceToRouteMeters
+                        val threshold = AppPreferences.offRouteThresholdMeters(context).toDouble()
+                        val isHigh = devMeters != null && devMeters > threshold
+                        val devText = devMeters?.let(::formatFollowDistance) ?: "—"
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF0F172A).copy(alpha = 0.92f),
+                            contentColor = Color.White,
+                            border = BorderStroke(1.5.dp, if (isHigh) Color(0xFFEF4444) else Color(0xFF10B981)),
+                            tonalElevation = 6.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text("🎯", fontSize = 13.sp)
+                                Text(
+                                    text = "Откл: $devText",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isHigh) Color(0xFFF87171) else Color(0xFF34D399)
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        onClick = { isSimulating = !isSimulating },
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isSimulating) Color(0xFFD32F2F) else Color(0xFF2E7D32),
+                        contentColor = Color.White,
+                        tonalElevation = 6.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(if (isSimulating) "⏹" else "▶", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(if (isSimulating) "Стоп" else "Старт", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            if (followsThisRoute && progress?.nextStop != null) {
+                val nextStop = progress.nextStop
+                val nextDist = progress.distanceToNextStopMeters?.let(::formatFollowDistance) ?: "—"
                 Surface(
-                    onClick = { isSimulating = !isSimulating },
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(end = 52.dp),
+                        .align(Alignment.TopStart)
+                        .padding(top = 50.dp, start = 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    color = if (isSimulating) Color(0xFFD32F2F) else Color(0xFF2E7D32),
+                    color = Color(0xFF0F172A).copy(alpha = 0.92f),
                     contentColor = Color.White,
-                    tonalElevation = 4.dp
+                    border = BorderStroke(1.5.dp, Color(0xFF38BDF8)),
+                    tonalElevation = 8.dp
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(if (isSimulating) "⏹" else "▶", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Text(if (isSimulating) "Стоп" else "Старт", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Text("🚏", fontSize = 14.sp)
+                        Text(
+                            text = "СЛЕД: ${nextStop.name}",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF60A5FA)
+                        )
+                        Text(
+                            text = nextDist,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+
+            if (followsThisRoute) {
+                Surface(
+                    onClick = {
+                        followCamera = true
+                        recenterToken += 1
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 14.dp, bottom = 28.dp),
+                    shape = CircleShape,
+                    color = Color(0xFF1E3A8A),
+                    contentColor = Color.White,
+                    border = BorderStroke(1.5.dp, Color(0xFF60A5FA)),
+                    tonalElevation = 8.dp
+                ) {
+                    Box(
+                        modifier = Modifier.size(46.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("📍", fontSize = 20.sp)
                     }
                 }
             }
@@ -599,7 +691,7 @@ fun RouteFollowingScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
-                        .padding(top = 52.dp),
+                        .padding(top = 92.dp),
                     shape = RoundedCornerShape(16.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                     colors = CardDefaults.cardColors(
@@ -638,7 +730,7 @@ fun RouteFollowingScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
-                        .padding(top = 52.dp),
+                        .padding(top = 92.dp),
                     shape = RoundedCornerShape(14.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                     colors = CardDefaults.cardColors(
@@ -678,7 +770,7 @@ fun RouteFollowingScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
-                        .padding(top = 52.dp)
+                        .padding(top = 92.dp)
                 ) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -712,20 +804,7 @@ fun RouteFollowingScreen(
                         RouteFollowingService.stop(context)
                     }
                 )
-            } else if (followsThisRoute && followingState.progress != null) {
-                FollowingStatusPanel(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    state = followingState,
-                    onRecenter = {
-                        followCamera = true
-                        recenterToken += 1
-                    },
-                    onStop = { showFinishConfirmation = true }
-                )
-            } else {
+            } else if (!followsThisRoute) {
                 BeforeFollowingPanel(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
